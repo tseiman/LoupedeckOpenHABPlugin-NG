@@ -1,581 +1,308 @@
-﻿using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+using System;
 using System.Collections.Generic;
-using System.Diagnostics.Contracts;
-using System.Net.Http;
+using System.Globalization;
+using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.WebSockets;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Text;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 #nullable enable
-namespace Loupedeck.OpenHABPlugin
+namespace Loupedeck.OpenHABPluginNG
 {
-    using System;
-    using System.Text.RegularExpressions;
-
-
-    public class OpenHABService
+    /// <summary>One connection session; only confirmed server states enter the cache.</summary>
+    public sealed class OpenHABService : IDisposable
     {
-        /// <summary>
-        /// Http client object for openHAB API calls
-        /// </summary>
-        protected HttpClient? _httpClient = null;
-
-        /// <summary>
-        /// Web socket client (not used currently)
-        /// </summary>
-        protected ClientWebSocket? _webSocketClient = null;
-
-        /// <summary>
-        /// Event triggered upon item update
-        /// </summary>
+        private readonly object _sync = new object();
+        private readonly SemaphoreSlim _lifecycle = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim _refresh = new SemaphoreSlim(1, 1);
+        private Dictionary<string, OpenHABCommandItem> _items = new Dictionary<string, OpenHABCommandItem>();
+        private readonly Dictionary<string, long> _versions = new Dictionary<string, long>();
+        private long _revision;
+        private int _generation;
+        private CancellationTokenSource? _stop;
+        private Task? _worker;
+        private HttpClient? _http;
+        private Uri? _baseUri;
+        private string _token = "";
+        private volatile bool _connected;
+        public bool IsWebSocketConnected => _connected;
         public event EventHandler<OpenHABEventArgs>? ItemChanged;
+        public event EventHandler? ConnectionChanged;
+        public IEnumerable<OpenHABCommandItem> Items { get { lock (_sync) return _items.Values.ToArray(); } }
+        public IEnumerable<OpenHABCommandItem> Switches => Items.Where(i => i.Type == "Switch");
+        public IEnumerable<OpenHABCommandItem> Dimmer => Items.Where(i => i.Type == "Dimmer");
+        public IEnumerable<OpenHABCommandItem> Rollershutters => Items.Where(i => i.Type == "Rollershutter");
+        public IEnumerable<OpenHABCommandItem> Labels => Items;
 
-        /// <summary>
-        /// Timer canceling, not used currently
-        /// </summary>
-        private readonly CancellationTokenSource _cancellationTokenSource = new CancellationTokenSource();
-
-        /// <summary>
-        /// List of items read from openHAB, contains <see cref="OpenHABCommandItem" elements/>
-        /// </summary>
-        public List<OpenHABCommandItem> Items { get; } = new List<OpenHABCommandItem>();
-
-        /// <summary>
-        /// OpenHAB base url
-        /// </summary>
-        protected String? _baseUrl;
-
-        /// <summary>
-        /// OpenHAB API token (not used currently)
-        /// </summary>
-        protected String? _apiToken;
-
-        /// <summary>
-        /// List of switches in openHAB items
-        /// </summary>
-        public IEnumerable<OpenHABCommandItem> Switches => Items.Where(item => item.Type == "Switch");
-
-        /// <summary>
-        /// List of dimmer in openHAB items
-        /// </summary>
-        public IEnumerable<OpenHABCommandItem> Dimmer => Items.Where(item => item.Type == "Dimmer");
-
-        /// <summary>
-        /// List of items considered for labels
-        /// </summary>
-        public IEnumerable<OpenHABCommandItem> Labels => Items.Where(item => (item.Type == "Number") || (item.Type == "String"));
-
-
-        /// <summary>
-        /// Default constructor
-        /// Opens the Http client
-        /// </summary>
-        public OpenHABService()
+        public static Uri ValidateBaseUrl(string url)
         {
-            _httpClient = new HttpClient();
+            if (!Uri.TryCreate(url.Trim().TrimEnd('/') + "/", UriKind.Absolute, out var uri) ||
+                (uri.Scheme != "http" && uri.Scheme != "https") || !string.IsNullOrEmpty(uri.UserInfo) ||
+                !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment))
+                throw new ArgumentException("Use an http(s) URL without credentials, query or fragment.");
+            return uri;
         }
 
-        /// <summary>
-        /// Timer to be called in regular intervals to poll item state from openHAB
-        /// </summary>
-        private async void Timer()
+        public async Task ConfigureAsync(string url, string token)
         {
-            while (true && !this._cancellationTokenSource.IsCancellationRequested)
+            var uri = ValidateBaseUrl(url);
+            await _lifecycle.WaitAsync().ConfigureAwait(false);
+            try
             {
-                await Task.Delay(5000);
-                var readItems = Items.Where(item => item.Registered);
-                foreach (var item in readItems)
+                await StopCoreAsync().ConfigureAwait(false);
+                _baseUri = uri; _token = token.Trim();
+                // The API uses explicit tokens, never browser cookies.
+                _http = new HttpClient(new HttpClientHandler { UseCookies = false }) { Timeout = TimeSpan.FromSeconds(10) };
+                if (_token.Length > 0) _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _token);
+                lock (_sync) { _items.Clear(); _versions.Clear(); _revision = 0; _generation++; }
+                _stop = new CancellationTokenSource();
+                var ct = _stop.Token;
+                _worker = Task.Run(() => RunAsync(ct));
+            }
+            finally { _lifecycle.Release(); }
+        }
+
+        private async Task RunAsync(CancellationToken ct)
+        {
+            await TryRefreshAsync(ct).ConfigureAwait(false);
+            await Task.WhenAll(WebSocketLoopAsync(ct), PollLoopAsync(ct)).ConfigureAwait(false);
+        }
+        private async Task TryRefreshAsync(CancellationToken ct)
+        {
+            try { await RefreshItemsAsync(ct).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+            catch (Exception ex) { Log("Item refresh failed: " + ex.GetType().Name); }
+        }
+        public async Task RefreshItemsAsync(CancellationToken ct = default)
+        {
+            await _refresh.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                long before;
+                int generation;
+                lock (_sync) { before = _revision; generation = _generation; }
+                var client = _http ?? throw new InvalidOperationException("Configure the server first.");
+                using var response = await client.GetAsync(new Uri(_baseUri!, "rest/items?recursive=false"), ct).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+                var data = JArray.Parse(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+                var changed = new List<OpenHABCommandItem>();
+                lock (_sync)
                 {
-                    if (item.Link != null)
+                    if (generation != _generation || ct.IsCancellationRequested) return;
+                    var next = new Dictionary<string, OpenHABCommandItem>();
+                    foreach (var json in data.OfType<JObject>())
                     {
-                        var state = ReceiveItemState(item.Link!);
-                        //Console.WriteLine($"Item {item.Link}: {state}");
-                        // Send only if changed
-                        if (state != item.State)
+                        var name = (string?)json["name"];
+                        if (string.IsNullOrWhiteSpace(name)) continue;
+                        _items.TryGetValue(name, out var previous);
+                        var state = (string?)json["state"] ?? "NULL";
+                        // Do not overwrite an event received after the REST request started.
+                        if (_versions.TryGetValue(name, out var version) && version > before && previous != null) state = previous.State ?? "NULL";
+                        var item = new OpenHABCommandItem
                         {
-                            item.State = state;
-                            ItemChanged?.Invoke(this, new OpenHABEventArgs(item.Link!, state != null ? state : "", ""));
-                        }
+                            Name = name, Link = new Uri(_baseUri!, "rest/items/" + Uri.EscapeDataString(name)).ToString(),
+                            Label = (string?)json["label"] ?? name, Type = (string?)json["type"], State = state,
+                            Group = (string?)json["groupNames"]?.FirstOrDefault() ?? "Others",
+                            Category = (string?)json["category"], Pattern = (string?)json["stateDescription"]?["pattern"]
+                        };
+                        next[name] = item;
+                        if (previous == null || previous.State != state || previous.Label != item.Label || previous.Category != item.Category) changed.Add(item);
                     }
+                    foreach (var removed in _items.Keys.Except(next.Keys))
+                        changed.Add(new OpenHABCommandItem { Name = removed, State = "NULL" });
+                    _items = next;
+                    foreach (var missing in _versions.Keys.Except(next.Keys).ToArray()) _versions.Remove(missing);
+                }
+                foreach (var item in changed) Notify(item);
+            }
+            finally { _refresh.Release(); }
+        }
+        private async Task PollLoopAsync(CancellationToken ct)
+        {
+            try
+            {
+                while (!ct.IsCancellationRequested)
+                {
+                    // Fallback without WS; reconciliation repairs missed events as well.
+                    await Task.Delay(TimeSpan.FromSeconds(_connected ? 30 : 5), ct).ConfigureAwait(false);
+                    await TryRefreshAsync(ct).ConfigureAwait(false);
                 }
             }
-
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
         }
-
-        /// <summary>
-        /// Initializes connection to openHAB and reads the list of items
-        /// </summary>
-        /// <param name="baseUrl">OpenHAB base URL</param>
-        /// <param name="token">OpenHAB API token</param>
-        public void Initialize(String baseUrl, String token)
+        private async Task WebSocketLoopAsync(CancellationToken ct)
         {
-            _baseUrl = baseUrl;
-            _apiToken = token;
-            ReadOpenHABItems();
-            Console.WriteLine("OpenHAB items read, triggering item update");
-            TriggerRegistration();
-            Timer();
-            //if (WebSocketUrl != null)
-            //{
-            //    Task.Run(async () => await Connect());
-            //}
-        }
-
-        /// <summary>
-        /// Read the openHAB items to be added as a selection for the command profile actions
-        /// </summary>
-        protected void ReadOpenHABItems()
-        {
-
-            String ohUrl = $"{_baseUrl}/rest/items?recursive=false";
-            _httpClient!.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
-            _httpClient!.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("text/plain"));
-            var response = _httpClient!.GetAsync(ohUrl).Result;
-
-
-            //// Read as json
-            if ((response != null) && (response.IsSuccessStatusCode))
+            var delay = 2;
+            while (!ct.IsCancellationRequested)
             {
-                var data = DeserializeResponseArray(response);
-                if (data != null)
+                foreach (var endpoint in new[] { "ws/events", "ws" })
                 {
-                    int maxItems = int.MaxValue;
-                    int itemNo = 0;
-                    while ((itemNo < data.Count) && (itemNo < maxItems))
+                    if (ct.IsCancellationRequested) break;
+                    using var socket = new ClientWebSocket();
+                    using var session = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    try
                     {
-                        var item = data[itemNo];
-                        // Get the group and select the first one as sub-group
-                        string? itemGroup = item["groupNames"]?.FirstOrDefault()?.ToString();
-
-                        if (itemGroup == null)
+                        if (_token.Length > 0)
                         {
-                            itemGroup = "No group";
+                            socket.Options.AddSubProtocol("org.openhab.ws.protocol.default");
+                            socket.Options.AddSubProtocol("org.openhab.ws.accessToken.base64." + Convert.ToBase64String(Encoding.UTF8.GetBytes(_token)).TrimEnd('='));
                         }
-
-                        string? itemType = item["type"]?.ToString();
-                        string? itemLabel = item["label"]?.ToString();
-                        string? itemName = item["name"]?.ToString();
-                        string? itemLink = item["link"]?.ToString();
-                        string? itemCategory = item["category"]?.ToString();
-                        string? itemState = item["state"]?.ToString();
-                        if ((itemLabel != null) && (itemName != null) && (itemLink != null))
+                        var builder = new UriBuilder(new Uri(_baseUri!, endpoint));
+                        builder.Scheme = _baseUri!.Scheme == "https" ? "wss" : "ws";
+                        using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct))
                         {
-                            string? pattern = item["stateDescription"]?["pattern"]?.ToString();
-                            Items!.Add(new OpenHABCommandItem
-                            {
-                                Type = itemType,
-                                Name = itemName,
-                                Label = itemLabel,
-                                Link = itemLink,
-                                Group = itemGroup,
-                                Category = itemCategory,
-                                State = itemState,
-                                Registered = false,
-                                Pattern = pattern
-                            });
+                            timeout.CancelAfter(TimeSpan.FromSeconds(10));
+                            await socket.ConnectAsync(builder.Uri, timeout.Token).ConfigureAwait(false);
                         }
-                        itemNo++;
+                        SetConnected(true); delay = 2;
+                        Log("WebSocket connected (" + endpoint + ").");
+                        // The server buffers events during initial reconciliation.
+                        await TryRefreshAsync(ct).ConfigureAwait(false);
+                        var receive = ReceiveAsync(socket, session.Token);
+                        var heartbeat = HeartbeatAsync(socket, session.Token);
+                        await Task.WhenAny(receive, heartbeat).ConfigureAwait(false);
+                        session.Cancel(); socket.Abort();
+                        try { await Task.WhenAll(receive, heartbeat).ConfigureAwait(false); }
+                        catch (OperationCanceledException) when (session.IsCancellationRequested) { }
                     }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+                    catch (Exception ex) { Log("WebSocket unavailable (" + endpoint + "): " + ex.GetType().Name); }
+                    finally { SetConnected(false); }
                 }
-            }
-            else
-            {
-                Console.WriteLine($"openHAB connection error: {((response != null) ? response!.StatusCode.ToString() : "no response")}");
+                try { await Task.Delay(TimeSpan.FromSeconds(delay), ct).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
+                delay = Math.Min(delay * 2, 30);
             }
         }
-
-
-        /// <summary>
-        /// Registers an action parameter as item to be updated
-        /// </summary>
-        /// <param name="actionParameter">Item link</param>
-        internal void RegisterItem(String actionParameter)
+        private async Task HeartbeatAsync(ClientWebSocket socket, CancellationToken ct)
         {
-            Console.WriteLine("Pre-Registering for actionParameter: " + actionParameter);
-            if (!String.IsNullOrEmpty(actionParameter))
+            var message = Encoding.UTF8.GetBytes(new JObject
             {
-                var item = Items.FirstOrDefault(item => item.Link == actionParameter);
-                if (item != default)
+                ["type"] = "WebSocketEvent", ["topic"] = "openhab/websocket/heartbeat",
+                ["payload"] = "PING", ["source"] = "LoupedeckOpenHABPlugin-NG"
+            }.ToString(Formatting.None));
+            while (!ct.IsCancellationRequested)
+            {
+                await socket.SendAsync(new ArraySegment<byte>(message), WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false);
+            }
+        }
+        private async Task ReceiveAsync(ClientWebSocket socket, CancellationToken ct)
+        {
+            var buffer = new byte[4096];
+            while (!ct.IsCancellationRequested && socket.State == WebSocketState.Open)
+            {
+                using var message = new MemoryStream();
+                WebSocketReceiveResult result;
+                do
                 {
-                    Console.WriteLine("Item for registering found: " + item.Name);
-                    item.Registered = true;
-                }
-                else
-                {
-                    Console.WriteLine($"Item {item!.Name} not found.");
-                }
+                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    timeout.CancelAfter(TimeSpan.FromSeconds(20));
+                    result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), timeout.Token).ConfigureAwait(false);
+                    if (result.MessageType == WebSocketMessageType.Close) return;
+                    if (message.Length + result.Count > 1024 * 1024) throw new InvalidDataException("WebSocket message exceeds limit.");
+                    message.Write(buffer, 0, result.Count);
+                } while (!result.EndOfMessage);
+                if (result.MessageType == WebSocketMessageType.Text) ProcessEvent(Encoding.UTF8.GetString(message.ToArray()));
             }
         }
-
-        internal Boolean ItemIsRegistered(String actionParameter)
+        public bool ProcessEvent(string message)
         {
-            var item = Items.FirstOrDefault(item => item.Link == actionParameter);
-            
-            return item != default ? item.Registered : true;
-        }
-
-        internal void TriggerRegistration()
-        {
-            foreach (var item in Switches)
+            try
             {
-                ItemChanged?.Invoke(this, new OpenHABEventArgs(item.Link!, item.State!, ""));
+                var envelope = JObject.Parse(message);
+                var type = (string?)envelope["type"];
+                if (type != "ItemStateEvent" && type != "ItemStateChangedEvent") return false;
+                var parts = ((string?)envelope["topic"] ?? "").Split('/');
+                if (parts.Length != 4 || parts[0] != "openhab" || parts[1] != "items" || (parts[3] != "state" && parts[3] != "statechanged")) return false;
+                var raw = envelope["payload"];
+                var payload = raw is JObject obj ? obj : JObject.Parse(raw?.ToString() ?? "{}");
+                var value = (string?)payload["value"];
+                return value != null && UpdateState(parts[2], value);
             }
+            catch (Exception ex) when (ex is JsonException || ex is ArgumentException || ex is InvalidCastException)
+            { Log("Ignored malformed WebSocket event."); return false; }
         }
-
-        /// <summary>
-        /// Gets the cached label of the item given by the item link
-        /// </summary>
-        /// <param name="actionParameter">Item link</param>
-        /// <returns>Item label</returns>
-        internal String? GetItemLabel(String actionParameter)
+        private bool UpdateState(string name, string state)
         {
-            var item = Items.FirstOrDefault(item => item.Link == actionParameter);
-            if (item != null)
+            OpenHABCommandItem? item;
+            lock (_sync)
             {
-                return item.Label;
+                if (!_items.TryGetValue(name, out item)) return false;
+                _versions[name] = ++_revision;
+                if (item.State == state) return true;
+                item.State = state;
             }
-            else
+            Notify(item); return true;
+        }
+        public OpenHABCommandItem? GetItem(string parameter)
+        {
+            lock (_sync)
             {
-                return null;
+                if (_items.TryGetValue(parameter, out var item)) return item;
+                return _items.Values.FirstOrDefault(i => i.Link == parameter);
             }
         }
-
-        /// <summary>
-        /// Returns the cached state of an item
-        /// </summary>
-        /// <param name="actionParameter">Link to the item in OH (id)</param>
-        /// <returns>Item state as string</returns>
-        internal String? GetStateOfItem(String actionParameter)
+        public string? GetStateOfItem(string parameter) => GetItem(parameter)?.State;
+        public string GetItemLabel(string parameter) => GetItem(parameter)?.Label ?? parameter;
+        public async Task SendCommandAsync(string parameter, string command)
         {
-            var item = Items.FirstOrDefault(item => item.Link == actionParameter);
-            if (item != null)
-            {
-                return item.State;
-            }
-            else
-            {
-                return null;
-            }
+            var item = GetItem(parameter) ?? throw new ArgumentException("Unknown item.");
+            var client = _http ?? throw new InvalidOperationException("Configure the server first.");
+            var ct = _stop?.Token ?? default;
+            using var body = new StringContent(command, Encoding.UTF8, "text/plain");
+            using var response = await client.PostAsync(item.Link, body, ct).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            // Commands (UP/STOP/ON) are not confirmed states.
+            await RefreshItemsAsync(ct).ConfigureAwait(false);
         }
-
-        /// <summary>
-        /// Apply the state description pattern to the item state
-        /// </summary>
-        /// <param name="actionParameter">Item Url</param>
-        /// <returns>Display state or state, when pattern is not defined</returns>
-        internal String? GetDisplayStateOfItem(String actionParameter)
+        private void Notify(OpenHABCommandItem item)
         {
-            var item = Items.FirstOrDefault(item => item.Link == actionParameter);
-            //Console.WriteLine($"Item found: {item.Name}, {item.Type}, {item.State}");
-            if (item != null)
-            {
-                String? displayState = item.State;
-                if (item.Pattern != null)
-                {
-                    if ((item.Type == "Number") && (Double.TryParse(item.State, out double value)))
-                    {
-                        displayState = String.Format(item.Pattern, value);
-                    }
-                    else if (item.Type == "String")
-                    {
-                        displayState = String.Format(item.Pattern, item.State);
-                    }
-                    Console.WriteLine(displayState);
-                }
-                return displayState;
-            }
-            else
-            {
-                return null;
-            }
+            foreach (var handler in ItemChanged?.GetInvocationList() ?? Array.Empty<Delegate>())
+                try { ((EventHandler<OpenHABEventArgs>)handler)(this, new OpenHABEventArgs(item.Name!, item.State ?? "NULL", "")); }
+                catch (Exception ex) { Log("Display notification failed: " + ex.GetType().Name); }
         }
-
-        #region OH Communication handling
-        /// <summary>
-        /// Deserializes an API response to JArray
-        /// </summary>
-        /// <param name="response">API response</param>
-        /// <returns></returns>
-        public static JArray? DeserializeResponseArray(HttpResponseMessage response)
+        private void SetConnected(bool connected)
         {
-            if (response == null)
-            {
-                return null;
-            }
-            string jsonString = response.Content.ReadAsStringAsync().Result;
-            JArray? data = JsonConvert.DeserializeObject<JArray>(jsonString);
-            return data;
+            _connected = connected;
+            foreach (var handler in ConnectionChanged?.GetInvocationList() ?? Array.Empty<Delegate>())
+                try { ((EventHandler)handler)(this, EventArgs.Empty); } catch { }
         }
-
-        /// <summary>
-        /// Deserializes a response message as JObject
-        /// </summary>
-        /// <param name="response">Http response message</param>
-        /// <returns>JSON object for the response</returns>
-        public static JObject? DeserializeResponseObject(HttpResponseMessage? response)
+        private static void Log(string message) => Console.WriteLine("[OpenHAB NG] " + message);
+        public static double ExtractNumericalValue(string? input)
         {
-            if (response == null)
-            {
-                return null;
-            }
-            string jsonString = response.Content.ReadAsStringAsync().Result;
-            JObject? data = JsonConvert.DeserializeObject<JObject>(jsonString);
-            return data;
+            if (string.IsNullOrWhiteSpace(input)) return double.NaN;
+            var match = Regex.Match(input, @"[-+]?[0-9]*\.?[0-9]+");
+            return match.Success && double.TryParse(match.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? value : double.NaN;
         }
-
-        /// <summary>
-        /// Returns byte array of icon defined in openHAB for given item category and state
-        /// </summary>
-        /// <param name="state">Item state</param>
-        /// <param name="itemCategory">Item category as defined in openHAB</param>
-        /// <returns>Byte array of img</returns>
-        public Byte[]? GetItemIconForState(String state, String? itemCategory)
+        public static string FormatPercent(string? state)
         {
-            string imageUrl = _baseUrl + "/icon/" + itemCategory + "?anyFormat=true&format=png&state=" + state;
-            var response = _httpClient?.GetAsync(imageUrl).Result;
-            byte[]? imgBytes = response?.Content.ReadAsByteArrayAsync().Result;
-            return imgBytes;
+            if (state == "ON") return "100 %";
+            if (state == "OFF") return "0 %";
+            var value = ExtractNumericalValue(state);
+            return double.IsNaN(value) ? "—" : Math.Clamp(value, 0, 100).ToString("0.#", CultureInfo.InvariantCulture) + " %";
         }
-
-        /// <summary>
-        /// Toggles an openHAB switch
-        /// </summary>
-        /// <param name="itemUrl">Url of the item</param>
-        /// <returns>Item state</returns>
-        public String? ToggleItem(String itemUrl)
+        public async Task StopAsync()
         {
-            HttpContent body = new StringContent("TOGGLE");
-            body.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/plain");
-            var response = _httpClient?.PostAsync(itemUrl, body).Result;
-            String? state = ReceiveItemState(itemUrl);
-            return state;
+            await _lifecycle.WaitAsync().ConfigureAwait(false);
+            try { await StopCoreAsync().ConfigureAwait(false); }
+            finally { _lifecycle.Release(); }
         }
-
-        /// <summary>
-        /// Gets the state of the given item
-        /// </summary>
-        /// <param name="itemUrl">Url of the item</param>
-        /// <returns>Item state</returns>
-        protected String? ReceiveItemState(String itemUrl)
+        private async Task StopCoreAsync()
         {
-            var response = _httpClient?.GetAsync(itemUrl + "/state").Result;
-            var state = response?.Content.ReadAsStringAsync().Result;
-            //Console.WriteLine("Got state for item: " + itemUrl + ": " + state);
-            return state;
+            _stop?.Cancel();
+            if (_worker != null) try { await _worker.ConfigureAwait(false); } catch (OperationCanceledException) { }
+            _http?.Dispose(); _http = null;
+            _stop?.Dispose(); _stop = null; _worker = null;
+            SetConnected(false);
         }
-
-        /// <summary>
-        /// Set an openHAB item state
-        /// </summary>
-        /// <param name="itemUrl">Url of the item</param>
-        /// <returns>Item state</returns>
-        public String? SendItemState(String itemUrl, string value)
-        {
-            /// Update internal value first and don't wait for an update
-            var item = Items.FirstOrDefault(item => item.Link == itemUrl);
-            if (item != null)
-            {
-                item.State = value;
-            }
-            HttpContent body = new StringContent(value);
-            body.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/plain");
-            var response = _httpClient?.PostAsync(itemUrl, body).Result;
-            response = _httpClient?.GetAsync(itemUrl + "/state").Result;
-            string? state = response?.Content.ReadAsStringAsync().Result;
-            return state;
-        }
-        #endregion
-
-
-        #region Helper methods
-        /// <summary>
-        /// Extracts the numerical value from a string containing units or other elements
-        /// </summary>
-        /// <param name="input">Input string</param>
-        /// <returns>Value as double, returns NaN if value could not be extracted</returns>
-        public static double ExtractNumericalValue(string input)
-        {
-            string pattern = @"([-+]?[0-9]*\.?[0-9]+)";
-            Match match = Regex.Match(input, pattern);
-            if (match.Success)
-            {
-                if (double.TryParse(match.Value, out double value))
-                {
-                    return value;
-                }
-
-            }
-            return double.NaN;
-        }
-
-        /// <summary>
-        /// Restricts a given value between the given minimum and maximum.
-        /// Returns minimum if value is less than minimum and maximum if value is greater than maximum.
-        /// </summary>
-        /// <typeparam name="T">Value type</typeparam>
-        /// <param name="value">Value</param>
-        /// <param name="min">Minimum value</param>
-        /// <param name="max">Maximum value</param>
-        /// <returns>Min/Max restricted value</returns>
-        public static T MinMax<T>(T value, T min, T max) where T : IComparable<T>
-        {
-            if (value.CompareTo(min) < 0)
-                return min;
-            else if (value.CompareTo(max) > 0)
-                return max;
-            else
-                return value;
-        }
-
-        #endregion
-
-        /// <summary>
-        /// Not documented from here
-        /// </summary>
-
-        #region WebSocket (currently unused)
-
-        protected String? WebSocketUrl
-        {
-            get
-            {
-                if (_baseUrl != null)
-                {
-                    if (_baseUrl.StartsWith("https://"))
-                    {
-                        return "wss://" + _baseUrl.Substring(8) + "/ws";
-                    }
-                    else if (_baseUrl.StartsWith("http://"))
-                    {
-                        return "ws://" + _baseUrl.Substring(7) + "/ws";
-                    }
-                }
-                return null;
-            }
-        }
-
-        private async Task Connect()
-        {
-            _webSocketClient = new ClientWebSocket();
-            Console.WriteLine("WebSocket created, connecting to: " + WebSocketUrl);
-
-            await _webSocketClient.ConnectAsync(new Uri(WebSocketUrl), CancellationToken.None);
-            //SendEncodedMessage(_apiToken);
-            Console.WriteLine("API Token sent");
-
-            System.Timers.Timer timer = new System.Timers.Timer(5000);
-            timer.Elapsed += Watchdog_Timer;
-
-            var receiveTask = ReceiveLoop();
-            while (true)
-            {
-                var completedTask = await Task.WhenAny(receiveTask, Task.Delay(Timeout.Infinite));
-                if (completedTask == receiveTask)
-                {
-                    if (receiveTask.IsCompleted)
-                    {
-                        break;
-                    }
-
-                    var data = JsonConvert.DeserializeObject<JObject>(receiveTask.Result);
-                    if (data != null)
-                    {
-                        /// Handle that event:
-                        /// {
-                        ///     "type": "ItemStateEvent",
-                        ///     "topic": "openhab/items/DTR/state",
-                        ///     "payload": "{\"type\":\"Quantity\",\"value\":\"5 MB/s\"}"
-                        /// }
-                        ///
-                        if (data["topic"] != null)
-                        {
-                            string[] elements = data["topic"]!.ToString().Split('/');
-                            string? itemName = elements.Count() >= 3 ? elements[2] : null;
-
-                            if ((itemName != null) && (data["type"] != null) && (data["type"]!.ToString() == "ItemStateEvent"))
-                            {
-                                if (data["payload"] != null)
-                                {
-                                    var payload = JsonConvert.DeserializeObject<JObject>(data["payload"]!.ToString());
-                                    string? itemValue = payload?["value"]?.ToString();
-                                    if (itemValue != null)
-                                    {
-                                        /// Update the state
-                                        /// Call an update of all registered elements
-                                        var item = Items.FirstOrDefault(item => item.Name == itemName);
-                                        if ((item != null) && (item.Registered))
-                                        {
-                                            item.State = itemValue;
-                                            ItemChanged?.Invoke(this, new OpenHABEventArgs(itemName, itemValue!, ""));
-                                        }
-                                    }
-
-                                }
-                            }
-                        }
-                    }
-
-                    Console.WriteLine("New message received: " + receiveTask.Result);
-                    receiveTask = ReceiveLoop();
-                }
-                else
-                {
-                    //handle other tasks
-                }
-            }
-        }
-
-        private void SendEncodedMessage(string message)
-        {
-            var buffer = Encoding.UTF8.GetBytes(message);
-            var segment = new ArraySegment<byte>(buffer);
-            _webSocketClient?.SendAsync(segment, WebSocketMessageType.Text, true, CancellationToken.None);
-            Console.WriteLine("Message sent: " + message);
-        }
-
-        private void Watchdog_Timer(Object sender, System.Timers.ElapsedEventArgs e)
-        {
-            SendEncodedMessage("{\r\n    \"type\": \"WebSocketEvent\",\r\n    \"topic\": \"openhab/websocket/heartbeat\",\r\n    \"payload\": \"PING\",\r\n    \"source\": \"Loupedeck_OpenHABPlugin\"\r\n}");
-        }
-
-        public async Task<string> ReceiveLoop()
-        {
-            if (_webSocketClient != null)
-            {
-                while (_webSocketClient!.State == WebSocketState.Open)
-                {
-                    var buffer = new ArraySegment<byte>(new byte[4096]);
-                    var result = await _webSocketClient.ReceiveAsync(buffer, CancellationToken.None);
-                    if (result.MessageType == WebSocketMessageType.Text)
-                    {
-                        var message = Encoding.UTF8.GetString(buffer.Array, 0, result.Count);
-                        Console.WriteLine("New message received: " + message);
-
-                        if (result.CloseStatus != null)
-                        {
-                            await _webSocketClient.CloseAsync(result.CloseStatus.Value, result.CloseStatusDescription, CancellationToken.None);
-                            return "";
-                        }
-                        return message;
-                    }
-                }
-            }
-            return "";
-        }
-
-        public async Task CloseWebSocket()
-        {
-            if (_webSocketClient != null)
-            {
-                await _webSocketClient!.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
-            }
-        }
-
-        #endregion
+        public void Dispose() => StopAsync().GetAwaiter().GetResult();
     }
 }
-#nullable restore
-

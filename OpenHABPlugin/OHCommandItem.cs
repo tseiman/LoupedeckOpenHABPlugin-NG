@@ -2,7 +2,7 @@
 
 #nullable enable
 
-namespace Loupedeck.OpenHABPlugin
+namespace Loupedeck.OpenHABPluginNG
 {
     /// <summary>
     /// OpenHAB item for internal representation, contains information read via the openHAB API
@@ -30,17 +30,13 @@ namespace Loupedeck.OpenHABPlugin
         /// </summary>
         public String? Group { get; set; }
         /// <summary>
-        /// Item icon category (not used currently
+        /// Item icon category used for the default switch symbol
         /// </summary>
         public String? Category { get; set; }
         /// <summary>
         /// Current item state (cached)
         /// </summary>
         public String? State { get; set; }
-        /// <summary>
-        /// Item is registered for updates
-        /// </summary>
-        public Boolean Registered { get; internal set; }
         /// <summary>
         /// Label pattern (format string) not used currently as not compatible to C# string formatting
         /// </summary>

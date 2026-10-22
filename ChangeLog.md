@@ -1,5 +1,50 @@
 # ChangeLog
 
+## 2026-10-23 – OpenHAB NG: Live-Zustände und neue Bedienelemente
+
+### Ausgangsfehler
+
+- WebSocket-Verbindung beim Initialisieren auskommentiert; Receive-Schleife verließ die Verarbeitung vor dem Auswerten abgeschlossener Nachrichten. Heartbeat-Timer wurde nicht gestartet, Authentifizierung nicht verwendet und fragmentierte Nachrichten nicht zusammengesetzt.
+- Events verwendeten Item-Namen, während Profile absolute URLs speicherten. Schalter wechselten durch blindes Toggeln statt durch Übernahme des gemeldeten Zustands; ein unbekannter Zustand konnte so ebenfalls einen Zustandswechsel auslösen.
+- Polling war nur für registrierte Items aktiv, lief als unbeaufsichtigte async-void-Schleife und wurde beim Entladen nicht beendet. Die Label-Auswahl mischte unterschiedliche Item-Mengen und konnte an fehlenden Gruppen scheitern.
+- Das Setzen einer neuen URL initialisierte weiterhin den alten URL-Wert und konnte den Token aus der Konfiguration entfernen.
+
+### Verbindung und Zustandsmodell
+
+- Service mit explizitem Lebenszyklus und abbrechbaren Hintergrundaufgaben neu aufgebaut. Ein erneutes Konfigurieren beendet die vorherige Session; Entladen beendet HTTP-Abfragen, Polling und WebSocket.
+- Initialer REST-Abruf aller Items, dann WebSocket über `/ws/events`, bei Bedarf `/ws` für ältere Server. OpenHAB sendet beim Verbinden standardmäßig alle Events; eine zusätzliche Subscribe-Nachricht ist dafür nicht erforderlich.
+- Token für REST per Bearer-Header und für WebSocket über die dokumentierten Subprotokolle. Keine Tokens oder kompletten Event-Nutzdaten in Diagnoseausgaben.
+- Heartbeat alle fünf Sekunden, Empfangs-Timeout, Wiederverbindung mit begrenzter Wartezeit, Reconciliation nach Verbindung sowie Verarbeitung vollständig zusammengesetzter Textnachrichten bis 1 MiB.
+- `ItemStateEvent` und `ItemStateChangedEvent` aktualisieren den bestätigten Cache und lösen Anzeigen-Benachrichtigungen aus. Fehlerhafte, fremde und reine Command-Events ändern die Anzeige nicht; doppelte Zustände lösen kein blindes Toggle aus.
+- REST-Abgleich alle fünf Sekunden ohne WebSocket und alle 30 Sekunden mit WebSocket. Veraltete REST-Antworten überschreiben keine neueren Events; entfernte Items werden als unbekannt gemeldet. Antworten einer abgelösten Session werden verworfen.
+- Neue Profilparameter verwenden stabile Item-Namen statt servergebundener URLs. REST-Zielpfade werden aus der konfigurierten Serveradresse gebildet. HTTP-Fehler werden geprüft; gesendete Befehle werden nicht als physisch bestätigte Zustände ausgegeben.
+- Cookie-Verwaltung für die tokenbasierte REST-API deaktiviert; damit funktioniert der Client auch in Umgebungen ohne Domainnamen-Abfrage.
+
+### Bedienung und Darstellung
+
+- Live-Schalter-Widgets mit echten AN/AUS-Zuständen, automatischen Symbolen aus der Item-Kategorie sowie expliziten Lampen- und Steckdosenaktionen. Lampen AN erhalten zusätzlich Strahlen; AN ist gelb, AUS grau. Kein Netzabruf beim Rendern der Tastenbilder.
+- Dimmer: Prozentwerte auch für ON/OFF, sichere Anzeige für NULL/UNDEF, Begrenzung auf 0–100, kulturunabhängige Zahlen und Aufaddieren schneller Drehbewegungen bei verzögertem Feedback. Änderungen aktualisieren sowohl Tastenbild als auch Drehgeberwert.
+- Rollladen: drei frei platzierbare Widgets AUF/STOP/AB für dasselbe Rollershutter-Item, mit aktueller Positionsanzeige und den OpenHAB-Befehlen UP/STOP/DOWN. Kein automatisch angelegtes mehrzelliges Profillayout.
+- Live-Zustandsanzeige für alle Items, gruppierte Auswahl ohne doppelte Others-Gruppe, sichere Anzeige bei fehlenden Labels und Verbindungsstatus-Widget.
+- Anzeigen abonnieren Zustandsereignisse beim Laden und melden sich beim Entladen wieder ab.
+- Aktionen für Server-URL und API-Token; URL-Wechsel erhält den Token. Anmeldedaten können alternativ direkt im NG-config.json hinterlegt werden.
+
+### Getrennte NG-Identität
+
+- Paketname `OpenHABNG`, Anzeigename `OpenHAB NG`, Assembly `OpenHABPluginNG.dll`, Namespace `Loupedeck.OpenHABPluginNG`, eigene Assembly-GUID und Version 0.2.0.
+- Plugin-Name trennt Profile und den vom Host verwalteten Datenordner vom ursprünglichen OpenHAB-Plugin. Keine automatische Übernahme oder Änderung der alten Konfiguration.
+- Alte OpenHABPlugin-Binaries im lokalen Build-Ausgabeordner werden beim Bauen entfernt, damit sie nicht versehentlich zusammen mit der NG-Version paketiert werden.
+- Windows-Metadatenpfad aktiviert; geprüft wurde der macOS-Release-Build, kein Windows-Laufzeittest.
+
+### Dokumentation und Validierung
+
+- Haupt-README mit vollständiger Build-Anleitung für macOS und Windows, geprüftem ATEM-SDK-Pfad, Offline-Restore, Ausgabe-/Installationsstruktur, Einrichtung, Widget-Verwendung und Testaufrufen aktualisiert.
+- Release-Build auf .NET 8 mit der API aus dem ATEM-Build erfolgreich, ohne Compilerwarnungen oder Fehler. Die aktuell installierte .NET-10-Logi-API wurde nicht als Referenz verwendet.
+- Neue ausführbare Integrationstests unter `tests/` verwenden einen echten lokalen HTTP-/WebSocket-Testserver und benötigen keine PluginApi.dll. Geprüft: REST-/WebSocket-Authentifizierung, Snapshot, Heartbeats, fragmentierte Nachrichten, Events, UI-Benachrichtigungsparameter, doppelte/ungültige Events, Schalter-/Rollladenbefehle, HTTP-Fehler, Race zwischen REST und WebSocket, Prozentformatierung, Wiederverbindung, Legacy-Endpunkt, Rekonfiguration, Polling-Fallback und vollständiges Beenden.
+- Kein Live-Test gegen die Installation des Benutzers und keine Prüfung der nativen Darstellung auf echter Loupedeck-/Logi-Hardware. Der erfolgreiche Test von Benachrichtigungen bestätigt den Datenweg bis zur Aktion, nicht das tatsächliche Zeichnen durch den Host. Insbesondere das Laden im installierten .NET-10-Host bleibt separat zu prüfen.
+- Protokollreferenzen: https://www.openhab.org/docs/configuration/websocket.html und https://v50.openhab.org/docs/configuration/websocket.html.
+
+
 ## 2026-10-22 – Migration auf .NET 8 nach ATEM-Vorbild
 
 ### Aktueller Stand

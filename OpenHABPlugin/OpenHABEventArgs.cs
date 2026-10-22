@@ -1,5 +1,5 @@
 ﻿#nullable enable
-namespace Loupedeck.OpenHABPlugin
+namespace Loupedeck.OpenHABPluginNG
 {
     using System;
 
@@ -9,7 +9,7 @@ namespace Loupedeck.OpenHABPlugin
     public class OpenHABEventArgs : EventArgs
     {
         /// <summary>
-        /// Item link (id and direct access via openHAB API)
+        /// Stable item name used as the NG profile parameter (not an absolute URL)
         /// </summary>
         public string Link { get; set; }
         /// <summary>

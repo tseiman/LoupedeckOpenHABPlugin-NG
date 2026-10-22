@@ -1,46 +1,144 @@
-# Loupedeck OpenHABPlugin
+# Loupedeck OpenHAB Plugin NG
 
-## What it is
+OpenHAB NG verbindet Loupedeck CT, Live, Live S und Razer Stream Controller mit OpenHAB. Die NG-Version verwendet .NET 8 und hat eine eigene Identität; sie kann neben dem ursprünglichen OpenHAB-Plugin eingerichtet werden.
 
-This plugin provides you with labels, actions, and adjustments for your Loupedeck device to interact with your home automation system via [OpenHAB](https://www.openhab.org/).
-This plugin requires a running OpenHAB server, reachable from the device, your Loupedeck device is attached to.
+## Funktionen
 
-- [x] Works for MacOS (precompiled, work in progress)
-- [x] Works for Windows (must be compiled from source)
+- Initialer Abruf aller Items über REST, Live-Aktualisierung durch WebSocket-Events und automatischer Neuaufbau nach Verbindungsabbruch.
+- WebSocket-Endpunkte `/ws/events` und als Fallback `/ws` für ältere OpenHAB-Versionen; Heartbeat alle fünf Sekunden.
+- REST-Abgleich alle fünf Sekunden ohne WebSocket, sonst alle 30 Sekunden zur Korrektur verpasster Ereignisse.
+- Schalter mit zustandsabhängigen Symbolen; automatische Lampen-/Steckdosenauswahl anhand der OpenHAB-Icon-Kategorie sowie explizite Aktionen **Lamp ON/OFF** und **Socket ON/OFF**.
+- Dimmer mit Prozentanzeige, Drehgeber zur Einstellung von 0 bis 100 und Tastendruck zum Ein-/Ausschalten.
+- Rollladensteuerung mit drei nebeneinander platzierbaren Widgets **AUF**, **STOP**, **AB**. Jedes zeigt die gemeldete Position und sendet den jeweiligen Befehl an dasselbe ausgewählte `Rollershutter`-Item.
+- Live-Zustandsanzeige für beliebige Items und ein Widget für den WebSocket-Verbindungsstatus.
 
-## Release / Getting started
+## Build-Anleitung
 
-You can find the precompiled plugin (lplug4 file) for MacOS in the [Releases](https://github.com/pernozzoli/Loupedeck_OpenHABPlugin/releases) section. To install, download the plugin and open it. Loupedeck should recognize the file and install the plugin. Alternatively you may install the plugin from file within the Loupedeck configuration app.
+### Voraussetzungen
 
-To configure the URL of your OpenHAB server, you may add the action "Set OpenHAB URL" to your Loupedeck device, configure the URL in the corresponding action profile parameter and execute the action once on your Loupedeck device. You may remove the action once you've done this.
+1. Ein .NET SDK ab Version 8 mit den .NET-8-Zielpaketen; für die Integrationstests zusätzlich die .NET-8-/ASP.NET-Core-8-Laufzeit. Vorhandene SDKs mit `dotnet --list-sdks` und Laufzeiten mit `dotnet --list-runtimes` prüfen.
+2. Eine **zu .NET 8 kompatible `PluginApi.dll`** aus dem Loupedeck-/Logi-SDK bzw. einer entsprechenden Host-Installation.
+3. Zugriff auf NuGet für Newtonsoft.Json 13.0.3 oder ein lokaler Paketcache.
 
-Alternatively you can configure your OpenHAB URL under the "url" property in the config.json file, that you can find in the corresponding Plugin data folder, e.g. `/Users/[Username]/.local/share/Loupedeck/PluginData/OpenHAB`.
+Das installierte LogiPluginService auf dem hier verwendeten Mac liefert bereits eine **.NET-10-API**. Diese DLL ist keine passende Referenz für das `net8.0`-Projekt. Als geprüfte .NET-8-Referenz dient lokal die API aus dem vorhandenen ATEM-Build. Das ATEM-Repository wird dadurch nicht verändert und ist keine fest eingebaute Projektabhängigkeit.
 
-You may have to restart the Loupedeck app after configuring the URL in order to see the OpenHAB items in the parameter section of each and every action.
+### macOS: geprüfter lokaler Build
 
-## Usage
+Im Terminal zunächst in das Repository wechseln:
 
-Upon start, the plugin reads out all available OpenHAB items to present them under their **first** corresponding group found. You can add switches and labels to regular button actions, dimmer can be added to the corresponding adjustment knobs. When configuring an action, you may select the group within the first combo-box in the settings, the second combo-box offers a list of items belonging to the selected group.
+```bash
+cd /Users/tseiman/Downloads/LoupedeckOpenHABPlugin-NG
+```
 
-You may change the icons to visually represent the current state of the item. The state is updated around every 5 seconds. Also after device initialization the states are updated automatically.
+Mit normaler Paketwiederherstellung bauen:
 
-## Restrictions
+```bash
+dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir=/Users/tseiman/Downloads/LoupedeckAtemControlerPlugin/bin/Debug/mac
+```
 
-Labels are restricted to show the raw values only as the formatting provided from OpenHAB is based on C/C++/Java string formatting and the Loupedeck plugin is implemented in C#, furthermore, OpenHAB doesn't currently offer an API to provide an already converted displayable state including the formatting, e.g. for units.
+Alternativ eine andere kompatible SDK-Installation verwenden:
 
-Adjustment may have a slight delay, depending on your network connection and the reaction time of OpenHAB. Consider this when adjusting a dimmer.
+```bash
+dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir="/Pfad/zum/kompatiblen/SDK"
+```
 
-When the OpenHAB URL changes you may have to restart the Loupedeck application. You shouldn't have to redefine individual actions, when item names and groups are not changed, but you will have to reassign an item when a name or a group assignment has changed.
+`PluginApiDir` bezeichnet das Verzeichnis, das `PluginApi.dll` enthält. Standardmäßig wird unter macOS `/Applications/Utilities/LogiPluginService.app/Contents/MonoBundle/` und unter Windows `C:/Program Files/Logi/LogiPluginService/` gesucht. Bei einer dort installierten neueren API muss der passende Pfad explizit angegeben werden. Das Pluginziel bleibt .NET 8 entsprechend der ATEM-Vorlage.
 
-## Support
+### Offline-Build mit dem vorhandenen Cache
 
-If you'd like to drop me a star for the hours I've spent on this.
+Auf diesem Mac kann Newtonsoft.Json ohne Netzwerk aus dem bereits vorhandenen NuGet-Paket wiederhergestellt werden:
 
+```bash
+dotnet restore OpenHABPlugin.sln --source /Users/tseiman/.nuget/packages/newtonsoft.json/13.0.3 --packages ./packages
+```
 
-## Building the NG version
+Anschließend ohne erneute Wiederherstellung bauen:
 
-The NG project follows the ATEM plugin build configuration: .NET 8, SDK-style project, and PackageReference. Install a .NET 8 or newer SDK and provide a compatible .NET 8 PluginApi.dll. Build with `dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir=/path/to/sdk` from the repository root. NuGet restore is automatic.
+```bash
+dotnet build OpenHABPlugin.sln --configuration Release --no-restore -p:PluginApiDir=/Users/tseiman/Downloads/LoupedeckAtemControlerPlugin/bin/Debug/mac
+```
 
-By default, PluginApiDir points to LogiPluginService on macOS and Windows. If that installation contains an API targeting a newer framework (the API currently installed on this Mac targets .NET 10), select a compatible API directory explicitly. The verified local build used `/Users/tseiman/Downloads/LoupedeckAtemControlerPlugin/bin/Debug/mac`. This path is a local build input, not a repository dependency or a default.
+### Windows
 
-Outputs are under `bin/Release/mac` or `bin/Release/win`, with metadata in the adjacent `metadata` folder. Building does not install the plugin or restart the host. The successful compilation has not yet been followed by a host loading test or an OpenHAB integration test.
+Im Repository-Verzeichnis und mit einem kompatiblen SDK-Pfad:
+
+```powershell
+dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir="C:/Pfad/zum/kompatiblen/SDK"
+```
+
+### Ergebnis und Installation
+
+Der Build erstellt folgende Struktur:
+
+```text
+bin/Release/
+  mac/                         # auf Windows: win/
+    OpenHABPluginNG.dll
+    OpenHABPluginNG.deps.json
+    Newtonsoft.Json.dll
+  metadata/
+    LoupedeckPackage.yaml
+    Icon*.png
+```
+
+Die Host-API wird nicht mit ausgeliefert. Debug-Ausgaben liegen entsprechend unter `bin/Debug/`. Der Build installiert das Plugin nicht automatisch und startet keinen Host neu. Das Paket muss unter dem neuen Namen **OpenHABNG** geladen werden; bei einer lokalen Entwicklungsinstallation muss der Plugin-Link auf das Verzeichnis zeigen, das `mac` bzw. `win` und `metadata` enthält, also beispielsweise `bin/Release`.
+
+Die Kompilierung gegen die ATEM-API ist lokal geprüft. Das Laden im aktuell installierten .NET-10-Host und die Anzeige auf echter Hardware müssen separat geprüft werden; ein erfolgreicher Build allein belegt diese Kompatibilität nicht. Der Build entfernt alte `OpenHABPlugin.dll`-Ausgaben im lokalen Zielordner; sie gehören nicht in ein NG-Paket.
+
+## OpenHAB einrichten
+
+1. Im Host das Plugin **OpenHAB NG** auswählen.
+2. Die Aktion **Set OpenHAB URL** auf eine Taste ziehen, die Server-URL eintragen (etwa `http://openhab.local:8080`) und einmal ausführen. Basis-Pfade hinter einem Reverse Proxy werden unterstützt.
+3. Falls erforderlich, **Set OpenHAB API token** ausführen. Der Token wird für REST und WebSocket verwendet. Er steht als Profilparameter und im lokalen `config.json`; die Konfiguration entsprechend behandeln. Alternativ den Token mit `mcedit` direkt im NG-Konfigurationsverzeichnis bearbeiten, ohne ihn als Tastenparameter zu hinterlegen.
+4. Nach dem ersten Item-Abruf die gewünschten Aktionen auswählen. Falls ein bereits geöffnetes Auswahlmenü noch leer ist, dieses erneut öffnen.
+
+Die NG-Konfiguration verwendet den vom Host für **OpenHABNG** bereitgestellten Datenordner. Das alte Plugin und seine Konfiguration werden nicht automatisch migriert. Eine eigene `config.json` enthält beispielsweise:
+
+```json
+{
+  "url": "http://openhab.local:8080",
+  "token": ""
+}
+```
+
+Beim Ändern der URL bleibt der Token erhalten; beim erneuten Konfigurieren wird die bisherige Verbindung beendet. Tokens werden nicht in Diagnoseausgaben geschrieben.
+
+## Aktionen und Anzeigen
+
+**Switch (automatic icon)** verwendet die Item-Kategorie: `light`, `lamp` und `bulb` ergeben das Lampensymbol; Kategorien mit `socket` oder `outlet` das Steckdosensymbol. Andere Kategorien erhalten einen allgemeinen Schalter. Mit **Lamp ON/OFF** bzw. **Socket ON/OFF** lässt sich das Symbol unabhängig von der Kategorie festlegen. Gelb bedeutet AN, Grau AUS; unbekannte Werte werden als `—` angezeigt. Der gemeldete Serverzustand ist maßgeblich, ein Tastendruck täuscht keinen bestätigten Zustand vor.
+
+**Dimmer (%)** zeigt Zahlen als Prozent, `ON` als `100 %`, `OFF` als `0 %` und `NULL`/`UNDEF` als `—`. Drehbewegungen sind auf 0 bis 100 begrenzt. Schnelle Drehbewegungen werden auch bei verzögerter Rückmeldung aufaddiert.
+
+Für den **Rollladen** drei Tasten nebeneinander mit **Rollladen AUF**, **Rollladen STOP**, **Rollladen AB** belegen und jeweils dasselbe Item wählen. Das ist eine Gruppe aus drei frei platzierbaren Widgets; es wird kein fertiges dreifeldriges Layout automatisch im Profil angelegt. Bei OpenHAB entspricht 0 % vollständig geöffnet und 100 % vollständig geschlossen.
+
+**Live state** zeigt den aktuellen Item-Wert. OpenHAB-spezifische Java-/printf-Formatierungen werden nicht als C#-Formatstrings ausgeführt; Einheiten bleiben im Rohwert erhalten.
+
+**Connection status** zeigt `LIVE`, wenn die WebSocket-Verbindung steht, andernfalls `REST / OFFLINE`. Die Statusanzeige allein bestätigt keine Erreichbarkeit der einzelnen Geräte. Verbindungs- und HTTP-Probleme erscheinen im Host-Log mit Präfix `[OpenHAB NG]`.
+
+## Integrationstests
+
+Die Tests verwenden einen lokalen OpenHAB-Testserver auf einem zufälligen Loopback-Port. Sie schalten keine realen Geräte und benötigen keine PluginApi.dll. Aus dem Repository-Verzeichnis:
+
+```bash
+dotnet run --project tests/OpenHAB.IntegrationTests.csproj
+```
+
+Offline auf diesem Mac:
+
+```bash
+dotnet restore tests/OpenHAB.IntegrationTests.csproj --source /Users/tseiman/.nuget/packages/newtonsoft.json/13.0.3 --packages ./packages
+```
+
+```bash
+dotnet run --project tests/OpenHAB.IntegrationTests.csproj --no-restore
+```
+
+Geprüft werden REST-/WebSocket-Authentifizierung, initiale Zustände, fragmentierte Events, Heartbeats, Zustandsänderungen und Anzeige-Benachrichtigungen, Schutz vor veralteten REST-Antworten, AUF/STOP/AB-Befehle, HTTP-Fehler, Prozentwerte, Wiederverbindung, Legacy-Endpunkt, REST-Fallback und das Beenden der Hintergrundabfragen. Die Tests ersetzen keine Prüfung der tatsächlichen Darstellung im Loupedeck-/Logi-Host.
+
+## Identität, Herkunft und Lizenz
+
+Plugin-ID: `OpenHABNG`, Anzeigename: `OpenHAB NG`, Assembly: `OpenHABPluginNG.dll`, Namespace: `Loupedeck.OpenHABPluginNG`.
+
+Diese Weiterentwicklung basiert auf [Loupedeck_OpenHABPlugin von Arno Pernozzoli](https://github.com/pernozzoli/Loupedeck_OpenHABPlugin). Die ursprünglichen Lizenz- und Copyright-Angaben bleiben erhalten. Änderungen und Prüfergebnisse stehen in [ChangeLog.md](ChangeLog.md). Lizenz: MIT, siehe [LICENSE](LICENSE).
+
+Protokollreferenzen: [OpenHAB WebSocket API](https://www.openhab.org/docs/configuration/websocket.html), [OpenHAB 5.0 WebSocket API](https://v50.openhab.org/docs/configuration/websocket.html), [Item-Typen](https://www.openhab.org/docs/configuration/items.html).

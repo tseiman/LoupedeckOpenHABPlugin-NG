@@ -1,143 +1,29 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics.Contracts;
-using System.Linq;
-using System.Net.Http;
-using System.Runtime.CompilerServices;
-
-using Newtonsoft.Json;
-
-using Newtonsoft.Json.Linq;
-
-#nullable enable
-namespace Loupedeck.OpenHABPlugin.Actions
+using System;
+namespace Loupedeck.OpenHABPluginNG.Actions
 {
-    public class SwitchItem : PluginMultistateDynamicCommand
+    public class SwitchItem : ItemCommand
     {
-        /// <summary>
-        /// Reference to openHAB service
-        /// </summary>
-        protected OpenHABService _ohService => ((OpenHABPlugin)this.Plugin).OHService;
-
-        public SwitchItem() : base()
+        private readonly string _icon;
+        public SwitchItem() : this("Switch (automatic icon)", "") { }
+        protected SwitchItem(string title, string icon) : base(title, "Switches") { _icon = icon; }
+        protected override PluginProfileActionData GetProfileActionData() => ItemPresentation.Tree("Select switch", Service.Switches);
+        protected override async void RunCommand(string parameter)
         {
-            this.DisplayName = "Switches";
-            this.GroupName = "Not used";
-
-            this.AddState("OFF", "off", "Switch on");
-            this.AddState("ON", "on", "Switch off");
-
-            this.MakeProfileAction("tree;Select item:");
-
-
+            var state = Service.GetStateOfItem(parameter);
+            if (state == "ON" || state == "OFF") await Owner.ExecuteAsync(parameter, state == "ON" ? "OFF" : "ON");
         }
-
-        protected override Boolean OnLoad()
+        protected override BitmapImage GetCommandImage(string parameter, PluginImageSize size)
         {
-            bool result = base.OnLoad();
-
-            Console.WriteLine("Switch Item loaded");
-            _ohService.ItemChanged += this.OnItemChanged;
-
-            return result;
-        }
-
-        /// <summary>
-        /// Called when registered item changes
-        /// </summary>
-        /// <param name="sender">Event sender</param>
-        /// <param name="e">Item info</param>
-        private void OnItemChanged(Object sender, OpenHABEventArgs e)
-        {
-            //Console.WriteLine($"Item {e.Link} update received: {e.State}");
-            if (this.GetCurrentState(e.Link).Name != e.State)
-            {
-                this.ToggleCurrentState(e.Link);
-            }
-            this.ActionImageChanged(e.Link);
-        }
-
-
-        /// <summary>
-        /// Command execution
-        /// </summary>
-        /// <param name="actionParameter">Item link</param>
-        protected override void RunCommand(String actionParameter)
-        {
-            /// Make sure that item is registered
-            Register(actionParameter);
-
-            this.ToggleCurrentState(actionParameter);
-            _ohService.SendItemState(actionParameter, this.GetCurrentState(actionParameter).Name);
-            this.ActionImageChanged(actionParameter);
-        }
-
-        /// <summary>
-        /// Command settings (item selection tree)
-        /// </summary>
-        /// <returns>Action data</returns>
-        protected override PluginProfileActionData GetProfileActionData()
-        {
-            // create tree data
-            var tree = new PluginProfileActionTree("Select Switch item");
-            tree.AddLevel("Group");
-            tree.AddLevel("Item");
-
-            Dictionary<string, PluginProfileActionTreeNode> nodes = new Dictionary<string, PluginProfileActionTreeNode>();
-
-            var groups = _ohService.Switches.Select(i => i.Group).Distinct();
-
-            foreach (var group in groups)
-            {
-                if (group != null)
-                {
-                    nodes.Add(group!, tree.Root.AddNode(group));
-                }
-            }
-
-            const String others = "Others";
-            /// Add a group for items without group
-            nodes.Add(others, tree.Root.AddNode(others));
-
-            foreach (var item in _ohService.Switches)
-            {
-                PluginProfileActionTreeNode node = nodes[item.Group != null ? item.Group : others];
-                if (node != null)
-                {
-                    node.AddItem(item.Link, item.Label);
-                }
-            }
-
-            return tree;
-        }
-
-        /// <summary>
-        /// Get image, register item and register to item change event
-        /// </summary>
-        /// <param name="actionParameter">Item link</param>
-        /// <param name="stateIndex">Status</param>
-        /// <param name="imageSize">Image size for button</param>
-        /// <returns></returns>
-        protected override BitmapImage GetCommandImage(String actionParameter, Int32 stateIndex, PluginImageSize imageSize)
-        {
-            Register(actionParameter);
-
-            return base.GetCommandImage(actionParameter, stateIndex, imageSize);
-        }
-
-        /// <summary>
-        /// Registers the action parameter for updates
-        /// </summary>
-        /// <param name="actionParameter">Item link</param>
-        private void Register(String actionParameter)
-        {
-            if (!_ohService.ItemIsRegistered(actionParameter))
-            {
-                Console.WriteLine("Image for item requested: " + actionParameter);
-
-                _ohService.RegisterItem(actionParameter);
-            }
+            var item = Service.GetItem(parameter);
+            var category = (item?.Category ?? "").ToLowerInvariant();
+            var icon = _icon;
+            if (icon.Length == 0)
+                icon = category.Contains("light") || category.Contains("lamp") || category.Contains("bulb") ? "lamp" :
+                    category.Contains("socket") || category.Contains("outlet") || category.Contains("poweroutlet") ? "socket" : "switch";
+            var value = item?.State == "ON" ? "AN" : item?.State == "OFF" ? "AUS" : "—";
+            return ItemPresentation.Render(size, Service.GetItemLabel(parameter), value, icon, item?.State == "ON");
         }
     }
+    public class LampItem : SwitchItem { public LampItem() : base("Lamp ON/OFF", "lamp") { } }
+    public class SocketItem : SwitchItem { public SocketItem() : base("Socket ON/OFF", "socket") { } }
 }
-

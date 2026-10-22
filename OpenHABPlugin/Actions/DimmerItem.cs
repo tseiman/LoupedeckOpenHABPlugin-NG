@@ -1,147 +1,69 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+using System;
+using System.Collections.Concurrent;
+using System.Globalization;
+using System.Threading;
 
-namespace Loupedeck.OpenHABPlugin.Actions
+namespace Loupedeck.OpenHABPluginNG.Actions
 {
-    /// <summary>
-    /// This class provides an adjustment and reset for dimmer items
-    /// </summary>
     public class DimmerItem : PluginDynamicAdjustment
     {
-        /// <summary>
-        /// Reference to openHAB service
-        /// </summary>
-        protected OpenHABService _ohService => ((OpenHABPlugin)this.Plugin).OHService;
-
-        /// <summary>
-        /// Constructor
-        /// </summary>
+        private OpenHABPlugin Owner => (OpenHABPlugin)this.Plugin;
+        private OpenHABService Service => Owner.OHService;
+        private sealed class Pending
+        {
+            public readonly SemaphoreSlim Gate = new SemaphoreSlim(1, 1);
+            public double Target;
+            public DateTime LastInput;
+        }
+        private readonly ConcurrentDictionary<string, Pending> _pending = new ConcurrentDictionary<string, Pending>();
         public DimmerItem() : base(true)
         {
-            this.DisplayName = "Dimmer";
-
-            this.MakeProfileAction("tree;Select item:");
+            this.DisplayName = "Dimmer (%)"; this.GroupName = "Lights"; this.IsWidget = true;
+            this.MakeProfileAction("tree;Select dimmer:");
         }
-
-        /// <summary>
-        /// Calls when user turns a know and sends the new value to openHAB
-        /// </summary>
-        /// <param name="actionParameter">Item link</param>
-        /// <param name="diff">Adjustment difference</param>
-        protected override void ApplyAdjustment(String actionParameter, Int32 diff)
+        protected override bool OnLoad()
         {
-            /// Get the state from the item
-            var currentValue = OpenHABService.ExtractNumericalValue(_ohService.GetStateOfItem(actionParameter));
-            currentValue = OpenHABService.MinMax(currentValue + diff, 0, 100);
-            var state = _ohService.SendItemState(actionParameter, currentValue.ToString());
-
-            this.AdjustmentValueChanged(actionParameter);
+            var result = base.OnLoad(); Service.ItemChanged += Changed; return result;
         }
-
-        /// <summary>
-        /// Toggles on and off depending on the current value of the item
-        /// </summary>
-        /// <param name="actionParameter"></param>
-        protected override void RunCommand(String actionParameter)
+        protected override bool OnUnload()
         {
-            var currentValue = OpenHABService.ExtractNumericalValue(_ohService.GetStateOfItem(actionParameter));
-            if (currentValue > 0)
-            {
-                _ohService.SendItemState(actionParameter, "OFF");
-            }
-            else
-            {
-                _ohService.SendItemState(actionParameter, "ON");
-            }
-
-            this.AdjustmentValueChanged(actionParameter);
+            Service.ItemChanged -= Changed; return base.OnUnload();
         }
-
-        /// <summary>
-        /// Gets the current cached state of the item as adjustment
-        /// </summary>
-        /// <param name="actionParameter"></param>
-        /// <returns></returns>
-        protected override String GetAdjustmentValue(String actionParameter)
+        private void Changed(object sender, OpenHABEventArgs e)
         {
-            var state = _ohService.GetStateOfItem(actionParameter);
-            if ((state == "OFF") || (state == "ON"))
-            {
-                return state;
-            }
-            else
-            {
-                var currentValue = OpenHABService.ExtractNumericalValue(_ohService.GetStateOfItem(actionParameter));
-                return $"{currentValue} %";
-            }
+            this.AdjustmentValueChanged(e.Link); this.ActionImageChanged(e.Link);
         }
-
-        /// <summary>
-        /// This method is used to register this class for udpates
-        /// </summary>
-        /// <param name="actionParameter">Item link</param>
-        /// <param name="imageSize">Image size</param>
-        /// <returns></returns>
-        protected override BitmapImage GetCommandImage(String actionParameter, PluginImageSize imageSize)
+        protected override PluginProfileActionData GetProfileActionData() => ItemPresentation.Tree("Select dimmer", Service.Dimmer);
+        protected override async void ApplyAdjustment(string parameter, int difference)
         {
-            _ohService.ItemChanged -= this.OnItemChanged;
-            _ohService.ItemChanged += this.OnItemChanged;
-
-            _ohService.RegisterItem(actionParameter);
-            return base.GetCommandImage(actionParameter, imageSize);
-        }
-
-        /// <summary>
-        /// Calls when an item was updated externally
-        /// </summary>
-        /// <param name="sender">Event sender</param>
-        /// <param name="e">Item state and other info according to <see cref="OpenHABEventArgs"/></param>
-        private void OnItemChanged(Object sender, OpenHABEventArgs e)
-        {
-            Console.WriteLine($"Update received for {e.Link}: {e.State}");
-            AdjustmentValueChanged(e.Link);
-        }
-
-
-        /// <summary>
-        /// Command settings (item selection tree)
-        /// </summary>
-        /// <returns>Action data</returns>
-        protected override PluginProfileActionData GetProfileActionData()
-        {
-            // create tree data
-            var tree = new PluginProfileActionTree("Select Dimmer item");
-            tree.AddLevel("Group");
-            tree.AddLevel("Item");
-
-            Dictionary<string, PluginProfileActionTreeNode> nodes = new Dictionary<string, PluginProfileActionTreeNode>();
-
-            var groups = _ohService.Dimmer.Select(i => i.Group).Distinct();
-
-            foreach (var group in groups)
+            var pending = _pending.GetOrAdd(parameter, _ => new Pending());
+            await pending.Gate.WaitAsync();
+            try
             {
-                if (group != null)
-                {
-                    nodes.Add(group!, tree.Root.AddNode(group));
-                }
+                var state = Service.GetStateOfItem(parameter);
+                var current = state == "ON" ? 100 : state == "OFF" ? 0 : OpenHABService.ExtractNumericalValue(state);
+                if (double.IsNaN(current)) return;
+                // Accumulate quick turns even when device feedback is delayed.
+                if ((DateTime.UtcNow - pending.LastInput).TotalSeconds > 2) pending.Target = current;
+                pending.Target = Math.Clamp(pending.Target + difference, 0, 100);
+                pending.LastInput = DateTime.UtcNow;
+                await Owner.ExecuteAsync(parameter, pending.Target.ToString("0", CultureInfo.InvariantCulture));
             }
-
-            const String others = "Others";
-            /// Add a group for items without group
-            nodes.Add(others, tree.Root.AddNode(others));
-
-            foreach (var item in _ohService.Dimmer)
-            {
-                PluginProfileActionTreeNode node = nodes[item.Group != null ? item.Group : others];
-                if (node != null)
-                {
-                    node.AddItem(item.Link, item.Label);
-                }
-            }
-
-            return tree;
+            catch (Exception ex) { Console.WriteLine("[OpenHAB NG] Dimmer failed: " + ex.GetType().Name); }
+            finally { pending.Gate.Release(); }
         }
+        protected override async void RunCommand(string parameter)
+        {
+            _pending.TryRemove(parameter, out _);
+            var state = Service.GetStateOfItem(parameter);
+            var value = state == "ON" ? 100 : state == "OFF" ? 0 : OpenHABService.ExtractNumericalValue(state);
+            if (!double.IsNaN(value)) await Owner.ExecuteAsync(parameter, value > 0 ? "OFF" : "ON");
+        }
+        protected override string GetAdjustmentValue(string parameter) => OpenHABService.FormatPercent(Service.GetStateOfItem(parameter));
+        protected override BitmapImage GetCommandImage(string parameter, PluginImageSize size) => Image(parameter, size);
+        protected override BitmapImage GetAdjustmentImage(string parameter, PluginImageSize size) => Image(parameter, size);
+        private BitmapImage Image(string parameter, PluginImageSize size) => ItemPresentation.Render(size,
+            Service.GetItemLabel(parameter), GetAdjustmentValue(parameter), "dimmer",
+            OpenHABService.ExtractNumericalValue(Service.GetStateOfItem(parameter)) > 0 || Service.GetStateOfItem(parameter) == "ON");
     }
 }
-

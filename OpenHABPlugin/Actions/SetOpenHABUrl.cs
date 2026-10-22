@@ -1,28 +1,24 @@
-﻿using System;
-namespace Loupedeck.OpenHABPlugin.Actions
+using System;
+namespace Loupedeck.OpenHABPluginNG.Actions
 {
     public class SetOpenHABUrl : PluginDynamicCommand
     {
-        /// <summary>
-        /// Reference to openHAB plugin
-        /// </summary>
-        protected OpenHABPlugin _ohPlugin=> ((OpenHABPlugin)this.Plugin);
-
-        public SetOpenHABUrl() : base(displayName: "Set OpenHAB URL", description: "Use this command to configure the OpenHAB URL", groupName: "Settings")
+        public SetOpenHABUrl() : base("Set OpenHAB URL", "Configure the OpenHAB NG server", "Settings")
+        { this.MakeProfileAction("text;OpenHAB server URL:"); }
+        protected override async void RunCommand(string parameter)
         {
-            this.MakeProfileAction("text;Enter OpenHAB URL:");
+            try { await ((OpenHABPlugin)this.Plugin).SetBaseUrlAsync(parameter); }
+            catch (Exception ex) { Console.WriteLine("[OpenHAB NG] URL configuration failed: " + ex.GetType().Name); }
         }
-
-        protected override void RunCommand(String actionParameter)
+    }
+    public class SetOpenHABToken : PluginDynamicCommand
+    {
+        public SetOpenHABToken() : base("Set OpenHAB API token", "Configure authentication for REST and WebSocket", "Settings")
+        { this.MakeProfileAction("text;API token (empty to clear):"); }
+        protected override async void RunCommand(string parameter)
         {
-            _ohPlugin.SetBaseUrl(actionParameter);
-        }
-
-        protected override BitmapImage GetCommandImage(String actionParameter, PluginImageSize imageSize)
-        {
-            var fn = EmbeddedResources.FindFile("openhab_80.png");
-            return EmbeddedResources.ReadImage(fn);
+            try { await ((OpenHABPlugin)this.Plugin).SetTokenAsync(parameter ?? ""); }
+            catch (Exception ex) { Console.WriteLine("[OpenHAB NG] Token configuration failed: " + ex.GetType().Name); }
         }
     }
 }
-

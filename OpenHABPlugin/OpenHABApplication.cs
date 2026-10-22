@@ -1,4 +1,4 @@
-namespace Loupedeck.OpenHABPlugin
+namespace Loupedeck.OpenHABPluginNG
 {
     using System;
 
