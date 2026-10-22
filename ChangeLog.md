@@ -1,5 +1,14 @@
 # ChangeLog
 
+## 2026-10-23 – Independent SDK discovery and development registration
+
+- Added host SDK discovery through an explicit PluginApiDir, OPENHAB_PLUGIN_SDK_DIR, a Git-ignored local sdk/ directory, and the standard host installation path, in that order. A compatible local SDK now allows a normal build without path arguments.
+- Kept the .NET 8 target and verified that the currently installed .NET 10 host API fails with CS1705. A .NET 8-compatible local SDK is used for successful validation; no host binaries are committed or bundled.
+- Added optional InstallPluginLink registration using cross-platform MSBuild file operations. OpenHABNG.link points to the configuration root containing metadata and the platform folder. PluginDir remains configurable and paths with spaces are supported. Normal builds do not register or restart the host.
+- Cleaning now removes copied metadata and, when registration is enabled, deletes a registration link only if it still points to the output being cleaned.
+- Rewrote the build instructions as a standalone workflow and removed comparison-project references from all current project files, including historical changelog wording.
+- Validation passed for SDK selection precedence, missing-SDK errors, optional registration in a path containing spaces, matching-link removal, preservation of links pointing elsewhere, metadata cleanup, and a final Release build without an explicit SDK argument. No registration was written to the actual host plugin directory.
+
 ## 2026-10-23 – Standalone OpenHAB build instructions
 
 - Removed the unrelated plugin checkout example from the README. Building OpenHAB NG requires only its own sources, the .NET SDK, restored NuGet packages, and a compatible Loupedeck/Logi `PluginApi.dll`.
@@ -9,7 +18,7 @@
 ## 2026-10-23 – Portable documentation examples
 
 - Removed developer-specific absolute paths and the private OpenHAB hostname from all project documentation, including historical changelog entries.
-- Build and test examples now use a checkout-relative directory, a compatible SDK placeholder, an optional relative ATEM checkout path, and a generic offline NuGet feed. The live icon test uses an example server address.
+- Build and test examples now use a checkout-relative directory, a compatible SDK placeholder, a generic offline NuGet feed. The live icon test uses an example server address.
 - Historical build commands are shown with portable path substitutions. Public repository URLs, standard host installation paths, and license attribution remain intact.
 
 ## 2026-10-23 – English project documentation
@@ -69,35 +78,35 @@
 
 ### Documentation and validation
 
-- Updated the main README with complete macOS and Windows build instructions, the verified ATEM SDK path, offline restoration, output and installation layout, configuration, widget usage, and test commands.
-- The .NET 8 Release build against the API from the ATEM build succeeded without compiler warnings or errors. The currently installed .NET 10 Logi API was not used as a reference.
+- Updated the main README with complete macOS and Windows build instructions, the verified host SDK path, offline restoration, output and installation layout, configuration, widget usage, and test commands.
+- The .NET 8 Release build against a compatible host SDK succeeded without compiler warnings or errors. The currently installed .NET 10 Logi API was not used as a reference.
 - Added executable integration tests under `tests/` using a real local HTTP/WebSocket test server without requiring `PluginApi.dll`. Coverage includes authentication, snapshots, heartbeats, fragmented messages, events, UI notification parameters, duplicate/malformed events, switch/rollershutter commands, HTTP failures, REST/WebSocket races, percentage formatting, reconnection, the legacy endpoint, reconfiguration, polling fallback, and shutdown.
 - No live test against the user's OpenHAB installation or native rendering test on actual Loupedeck/Logi hardware was performed. Notification tests confirm the data path to the action, not actual drawing by the host. Loading in the installed .NET 10 host still requires separate verification.
 - Protocol references: https://www.openhab.org/docs/configuration/websocket.html and https://v50.openhab.org/docs/configuration/websocket.html.
 
-## 2026-10-22 – Migration to .NET 8 following the ATEM project
+## 2026-10-22 – Migration to .NET 8
 
 ### Implementation
 
-- Used the modern ATEM plugin as the reference: SDK-style project format (`Microsoft.NET.Sdk`), `TargetFramework=net8.0`, and NuGet through `PackageReference`. The previous approach of retaining .NET Framework 4.8 was discarded.
+- Adopted a modern build configuration: SDK-style project format (`Microsoft.NET.Sdk`), `TargetFramework=net8.0`, and NuGet through `PackageReference`. The previous approach of retaining .NET Framework 4.8 was discarded.
 - Removed legacy framework references and explicit C# source lists; the SDK discovers source files automatically. Newtonsoft.Json 13.0.3 is restored through PackageReference and copied to the output using `CopyLocalLockFileAssemblies=true`.
 - Removed `packages.config` and the framework-specific `App.config` with its old binding redirects.
 - `GenerateAssemblyInfo=false` preserves existing assembly attributes without duplicate generation. At this stage, the assembly name and namespace were retained. The embedded PNG remains included.
 - Removed the unused `System.Runtime.Remoting.Messaging`, `System.Security.Policy`, and `Loupedeck.Devices.Loupedeck2Devices` imports so the source compiles under .NET 8.
 - Set the shared intermediate output path early in `Directory.Build.props`. Output is placed under `bin/<Configuration>/mac` or `win`, with metadata alongside it.
-- Default SDK paths point to LogiPluginService, following the ATEM project. `PluginApiDir` remains overridable, and the host API is not bundled.
+- Default SDK paths point to LogiPluginService. `PluginApiDir` remains overridable, and the host API is not bundled.
 
 ### Build and remaining validation
 
 - Offline package restoration from the existing Newtonsoft.Json 13.0.3 cache succeeded.
-- Release build against the .NET 8 API in the existing ATEM build output (`bin/Debug/mac`) succeeded without compiler errors. Full compilation reported four existing nullability warnings (CS8622 and CS8604); an unchanged incremental build also succeeded.
+- Release build against the .NET 8 API in the locally available host SDK succeeded without compiler errors. Full compilation reported four existing nullability warnings (CS8622 and CS8604); an unchanged incremental build also succeeded.
 - Output at this stage: `bin/Release/mac/OpenHABPlugin.dll`, Newtonsoft.Json, the dependency manifest, and copied metadata.
 - Build command from the repository: `dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir="/path/to/compatible/SDK"`. The offline check first restored packages using `dotnet restore OpenHABPlugin.sln --source "/path/to/offline-nuget-feed" --packages ./packages`, then built with `--no-restore`.
-- The installed Logi host already provides a .NET 10 API, which was not used for the .NET 8 build. Successful compilation against the host API copied in that build does not replace host loading or OpenHAB functionality tests; those remain outstanding.
+- The installed Logi host already provides a .NET 10 API, which was not used for the .NET 8 build. Successful compilation against the compatible host API does not replace host loading or OpenHAB functionality tests; those remain outstanding.
 
 ## 2026-10-22 – Discarded intermediate step: .NET Framework 4.8 build configuration
 
-This approach was discarded after the user clarified the requirement. The .NET 8 migration following the ATEM project, documented above, supersedes it. This section records only the historical intermediate state.
+This approach was discarded after the user clarified the requirement. The .NET 8 migration documented above supersedes it. This section records only the historical intermediate state.
 
 ### Corrections at that stage
 
@@ -106,9 +115,9 @@ This approach was discarded after the user clarified the requirement. The .NET 8
 - Removed duplicate and macOS-only output paths. Debug and Release output went to `bin/<Configuration>/mac` or `bin/<Configuration>/win`; Debug builds no longer wrote directly into the plugin installation. Base paths also worked when building the project directly without its solution.
 - Removed IDE-specific Debug commands that terminated Loupedeck processes.
 
-### Improvements adopted from the ATEM plugin
+### Build improvements
 
-The comparison primarily covered `src/LoupedeckAtemControlerPlugin/LoupedeckAtemControlerPlugin.csproj` and `src/Directory.Build.props` in the `LoupedeckAtemControlerPlugin` repository. The ATEM project was not modified.
+Build changes covered the project configuration and shared MSBuild properties.
 
 - Made the SDK directory configurable through `PluginApiDir`, retaining the previous Loupedeck paths as defaults at that stage. Set `Private=False` so the host-provided `PluginApi.dll` was not copied into the plugin output.
 - Added an early, clear error for a missing SDK file. An alternative compatible SDK directory could be supplied with `/p:PluginApiDir=/path/to/SDK`.
@@ -119,15 +128,15 @@ The comparison primarily covered `src/LoupedeckAtemControlerPlugin/LoupedeckAtem
 - The initial Mono MSBuild attempt failed because PluginApi and the Newtonsoft.Json package were missing.
 - Restored Newtonsoft.Json 13.0.3 from the existing local NuGet cache to `packages/Newtonsoft.Json.13.0.3`. Package files remained local under the existing Git ignore rule. Fresh checkouts still required NuGet restoration.
 - A subsequent Release build was blocked by the missing compatible Loupedeck SDK at `/Applications/Loupedeck.app/Contents/MonoBundle/PluginApi.dll`. Mono supplied the .NET Framework 4.8 reference assemblies.
-- The installed API at `/Applications/Utilities/LogiPluginService.app/Contents/MonoBundle/PluginApi.dll` targets `.NETCoreApp,Version=v10.0`; the API in the ATEM build targets v8.0. Neither replaces a .NET Framework 4.8 API. Installed dotnet SDKs extended through version 9.0.201.
+- The installed API at `/Applications/Utilities/LogiPluginService.app/Contents/MonoBundle/PluginApi.dll` targets `.NETCoreApp,Version=v10.0`; the separately available compatible host API targets v8.0. Neither replaces a .NET Framework 4.8 API. Installed dotnet SDKs extended through version 9.0.201.
 - XML configuration files parsed successfully. The metadata target was run separately, and the copied YAML file was verified byte-for-byte. No successful plugin build or runtime test occurred at that stage.
 - Build command: `/Library/Frameworks/Mono.framework/Versions/Current/Commands/msbuild OpenHABPlugin.sln /t:Build /p:Configuration=Release /verbosity:minimal /nologo` from the repository directory.
 
 ### Further modernization options identified at that stage
 
-- The ATEM plugin used SDK-style projects, `PackageReference`, and net8.0. This was identified as a useful migration, subject to the target host version; the installed host already provided a .NET 10 API. No unverified net8.0 switch was made at that intermediate stage.
+- SDK-style projects, `PackageReference`, and net8.0 were considered for modernization. This was identified as a useful migration, subject to the target host version; the installed host already provided a .NET 10 API. No unverified net8.0 switch was made at that intermediate stage.
 - Migrating to the current Logi host would require a matching .NET 10 SDK and review or adjustment of the plugin API usage and legacy framework namespaces.
-- Automatic plugin-link installation from the ATEM project was not adopted because the target host had not been established. Web configuration and shared-state helpers were possible future features, not requirements for the build repair.
+- Automatic plugin-link installation was not adopted because the target host had not been established. Web configuration and shared-state helpers were possible future features, not requirements for the build repair.
 
 ## 2026-10-22 – Import of manual changes
 

@@ -10,9 +10,16 @@
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <PluginPlatform Condition="'$(OS)' == 'Windows_NT'">win</PluginPlatform>
     <PluginPlatform Condition="'$(PluginPlatform)' == ''">mac</PluginPlatform>
-    <OutputPath>$(MSBuildProjectDirectory)/../bin/$(Configuration)/$(PluginPlatform)/</OutputPath>
+    <PluginBuildRoot>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../bin/$(Configuration)'))</PluginBuildRoot>
+    <OutputPath>$(PluginBuildRoot)/$(PluginPlatform)/</OutputPath>
+    <PluginApiDir Condition="'$(PluginApiDir)' == '' and '$(OPENHAB_PLUGIN_SDK_DIR)' != ''">$(OPENHAB_PLUGIN_SDK_DIR)</PluginApiDir>
+    <PluginApiDir Condition="'$(PluginApiDir)' == '' and Exists('$(MSBuildProjectDirectory)/../sdk/PluginApi.dll')">$(MSBuildProjectDirectory)/../sdk</PluginApiDir>
     <PluginApiDir Condition="'$(PluginApiDir)' == '' and '$(OS)' == 'Windows_NT'">C:/Program Files/Logi/LogiPluginService/</PluginApiDir>
     <PluginApiDir Condition="'$(PluginApiDir)' == ''">/Applications/Utilities/LogiPluginService.app/Contents/MonoBundle/</PluginApiDir>
+    <InstallPluginLink Condition="'$(InstallPluginLink)' == ''">false</InstallPluginLink>
+    <PluginDir Condition="'$(PluginDir)' == '' and '$(OS)' == 'Windows_NT'">$(LOCALAPPDATA)/Logi/LogiPluginService/Plugins</PluginDir>
+    <PluginDir Condition="'$(PluginDir)' == ''">$(HOME)/Library/Application Support/Logi/LogiPluginService/Plugins</PluginDir>
+    <PluginLinkFile>$(PluginDir)/OpenHABNG.link</PluginLinkFile>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="PluginApi">
@@ -25,7 +32,8 @@
     <None Include="../licenses/*" Link="licenses/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="VerifyPluginApi" BeforeTargets="ResolveAssemblyReferences">
-    <Error Condition="!Exists('$(PluginApiDir)/PluginApi.dll')" Text="PluginApi.dll missing. Set /p:PluginApiDir=/path/to/a/net8-compatible/sdk." />
+    <Error Condition="!Exists('$(PluginApiDir)/PluginApi.dll')" Text="PluginApi.dll missing. Place a .NET 8-compatible host SDK in sdk/, set OPENHAB_PLUGIN_SDK_DIR, or pass /p:PluginApiDir=/path/to/sdk." />
+    <Message Importance="High" Text="OpenHAB NG host SDK: $(PluginApiDir)" />
   </Target>
   <Target Name="CopyMetadata" AfterTargets="Build">
     <ItemGroup>
@@ -35,5 +43,19 @@
   </Target>
   <Target Name="RemoveLegacyBuildArtifacts" BeforeTargets="PrepareForBuild">
     <Delete Files="$(OutputPath)OpenHABPlugin.dll;$(OutputPath)OpenHABPlugin.pdb;$(OutputPath)OpenHABPlugin.deps.json;$(OutputPath)OpenHABPlugin.dll.config" />
+  </Target>
+  <Target Name="InstallOpenHABPluginLink" AfterTargets="CopyMetadata" Condition="'$(InstallPluginLink)' == 'true'">
+    <MakeDir Directories="$(PluginDir)" />
+    <WriteLinesToFile File="$(PluginLinkFile)" Lines="$(PluginBuildRoot)" Overwrite="true" Encoding="UTF-8" WriteOnlyWhenDifferent="true" />
+    <Message Importance="High" Text="Registered OpenHAB NG: $(PluginLinkFile)" />
+  </Target>
+  <Target Name="CleanOpenHABPluginLayout" AfterTargets="CoreClean">
+    <RemoveDir Directories="$(PluginBuildRoot)/metadata" />
+  </Target>
+  <Target Name="CleanOpenHABPluginLink" AfterTargets="CoreClean" Condition="'$(InstallPluginLink)' == 'true' and Exists('$(PluginLinkFile)')">
+    <ReadLinesFromFile File="$(PluginLinkFile)">
+      <Output TaskParameter="Lines" ItemName="OpenHABPluginLinkLines" />
+    </ReadLinesFromFile>
+    <Delete Files="$(PluginLinkFile)" Condition="'@(OpenHABPluginLinkLines)' == '$(PluginBuildRoot)'" />
   </Target>
 </Project>

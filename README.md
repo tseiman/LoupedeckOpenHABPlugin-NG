@@ -16,31 +16,52 @@ OpenHAB NG connects Loupedeck CT, Live, Live S, and Razer Stream Controller to O
 
 ### Prerequisites
 
-1. .NET SDK 8 or later with the .NET 8 targeting packs. Integration tests also require the .NET 8 and ASP.NET Core 8 runtimes. Check installed SDKs with `dotnet --list-sdks` and runtimes with `dotnet --list-runtimes`.
-2. A **.NET 8-compatible `PluginApi.dll`** from the Loupedeck/Logi SDK or a corresponding host installation.
-3. NuGet access for Newtonsoft.Json 13.0.3, or an existing local package cache.
+- .NET SDK 8 or later with the .NET 8 targeting packs. Integration tests additionally require the .NET 8 and ASP.NET Core 8 runtimes. Check installed versions with `dotnet --list-sdks` and `dotnet --list-runtimes`.
+- A .NET 8-compatible Loupedeck/Logi host SDK containing `PluginApi.dll`.
+- NuGet access for Newtonsoft.Json 13.0.3, or a local package source.
 
-Use a `PluginApi.dll` compatible with the project target, **.NET 8**. A host installation may provide an API targeting a newer framework, such as .NET 10; that DLL is not a suitable build reference for this `net8.0` project. Provide the directory of a compatible Loupedeck/Logi SDK explicitly when necessary.
+The project is self-contained apart from its host SDK and NuGet dependencies. No other plugin checkout is required.
 
-### macOS: verified local build
+### Host SDK discovery
 
-From the directory containing your checkout, change to the repository directory:
+The build selects the SDK directory in this order:
+
+1. An explicit `-p:PluginApiDir="/path/to/sdk"` argument.
+2. The `OPENHAB_PLUGIN_SDK_DIR` environment variable.
+3. The repository-local `sdk/` directory, if it contains `PluginApi.dll`.
+4. The standard host installation directory:
+   - macOS: `/Applications/Utilities/LogiPluginService.app/Contents/MonoBundle/`
+   - Windows: `C:/Program Files/Logi/LogiPluginService/`
+
+For a simple local setup, place a compatible `PluginApi.dll` in `sdk/` at the repository root. Keep any accompanying SDK reference assemblies in that directory if required. This folder is ignored by Git and host binaries are not distributed with the source. The build prints the selected SDK directory.
+
+The host SDK must be compatible with the project target, `net8.0`. If your installed host supplies an API targeting .NET 10, provide a compatible SDK through one of the first three options. Installing a newer compiler alone does not make a .NET 10 API compatible with a .NET 8 target.
+
+### Build
+
+From the directory containing your checkout:
 
 ```bash
 cd LoupedeckOpenHABPlugin-NG
 ```
 
-Build with automatic package restoration:
+Once the SDK is available through discovery, build with automatic package restoration:
 
 ```bash
-dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir="/path/to/compatible/SDK"
+dotnet build OpenHABPlugin.sln --configuration Release
 ```
 
-`PluginApiDir` is the directory containing `PluginApi.dll`. The default is `/Applications/Utilities/LogiPluginService.app/Contents/MonoBundle/` on macOS and `C:/Program Files/Logi/LogiPluginService/` on Windows. If that installation contains a newer API, explicitly provide a compatible path. The plugin targets .NET 8. No other plugin project is required to build it.
+The same command works on macOS and Windows. Debug builds use `--configuration Debug`. To select an SDK explicitly:
 
-### Offline build using a local package source
+```bash
+dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir="/path/to/sdk"
+```
 
-Use a local NuGet feed containing the Newtonsoft.Json 13.0.3 package (`.nupkg`). Replace the example source directory with the location of your feed:
+On Windows, use a Windows SDK path, for example `-p:PluginApiDir="C:/path/to/sdk"`.
+
+### Offline build
+
+Use a local NuGet feed containing the Newtonsoft.Json 13.0.3 package (`.nupkg`). Replace the example directory with your package source:
 
 ```bash
 dotnet restore OpenHABPlugin.sln --source "/path/to/offline-nuget-feed" --packages ./packages
@@ -49,20 +70,10 @@ dotnet restore OpenHABPlugin.sln --source "/path/to/offline-nuget-feed" --packag
 Then build without restoring packages again:
 
 ```bash
-dotnet build OpenHABPlugin.sln --configuration Release --no-restore -p:PluginApiDir="/path/to/compatible/SDK"
+dotnet build OpenHABPlugin.sln --configuration Release --no-restore
 ```
 
-### Windows
-
-Run this command from the repository directory with a compatible SDK path:
-
-```powershell
-dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir="C:/path/to/compatible/SDK"
-```
-
-### Output and installation
-
-The build creates this directory structure:
+### Output
 
 ```text
 bin/Release/
@@ -70,14 +81,44 @@ bin/Release/
     OpenHABPluginNG.dll
     OpenHABPluginNG.deps.json
     Newtonsoft.Json.dll
+    licenses/
   metadata/
     LoupedeckPackage.yaml
     Icon*.png
 ```
 
-The host API is not bundled. Debug output is placed under `bin/Debug/`. Building does not automatically install the plugin or restart the host. Load the package under its new name, **OpenHABNG**. For a local development installation, the plugin link must point to the directory containing `mac` or `win` and `metadata`, for example `bin/Release`.
+Debug output is placed under `bin/Debug/`. The host API is not copied to the output. Legacy `OpenHABPlugin.dll` files are removed from the build output so they cannot accidentally be bundled with NG.
 
-Compilation against a .NET 8-compatible Loupedeck/Logi API has been verified locally. Loading in a newer host runtime and rendering on actual hardware still require separate testing; a successful build does not establish that compatibility. The build removes legacy `OpenHABPlugin.dll` output from its local target directory; those files must not be included in an NG package.
+A successful .NET 8 build does not by itself verify loading or native rendering in every host version. Loading in the installed .NET 10 host and rendering on actual hardware still require separate verification.
+
+### Optional local registration
+
+A normal build only produces files. To also create the `OpenHABNG.link` development registration, explicitly enable it:
+
+```bash
+dotnet build OpenHABPlugin.sln --configuration Release -p:InstallPluginLink=true
+```
+
+The link points to the absolute `bin/Release` directory containing `metadata` and the platform folder. The default plugin directory is:
+
+- macOS: `~/Library/Application Support/Logi/LogiPluginService/Plugins/`
+- Windows: `%LOCALAPPDATA%/Logi/LogiPluginService/Plugins/`
+
+Override it with `-p:PluginDir="/path/to/host/Plugins"` if necessary. Paths containing spaces are supported. Registration does not restart the host.
+
+### Clean
+
+```bash
+dotnet clean OpenHABPlugin.sln --configuration Release
+```
+
+Cleaning removes build outputs and copied metadata. If registration was enabled, use the same registration options to remove its link as well:
+
+```bash
+dotnet clean OpenHABPlugin.sln --configuration Release -p:InstallPluginLink=true
+```
+
+If you supplied a custom `PluginDir`, pass it to both build and clean. The link is deleted only when its contents still point to the configuration being cleaned; a link belonging to another output directory is retained.
 
 ## Configuring OpenHAB
 
