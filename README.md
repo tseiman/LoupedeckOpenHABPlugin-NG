@@ -1,6 +1,6 @@
 # Loupedeck OpenHAB Plugin NG
 
-OpenHAB NG connects Loupedeck CT, Live, Live S, and Razer Stream Controller to OpenHAB. The NG version uses .NET 8 and has its own identity, allowing it to be configured alongside the original OpenHAB plugin.
+OpenHAB NG connects Loupedeck CT, Live, Live S, and Razer Stream Controller to OpenHAB. The NG version uses .NET 10 and has its own identity, allowing it to be configured alongside the original OpenHAB plugin.
 
 ## Features
 
@@ -16,26 +16,26 @@ OpenHAB NG connects Loupedeck CT, Live, Live S, and Razer Stream Controller to O
 
 ### Prerequisites
 
-- .NET SDK 8 or later with the .NET 8 targeting packs. Integration tests additionally require the .NET 8 and ASP.NET Core 8 runtimes. Check installed versions with `dotnet --list-sdks` and `dotnet --list-runtimes`.
-- A .NET 8-compatible Loupedeck/Logi host SDK containing `PluginApi.dll`.
+- .NET 10 SDK. Integration tests also require the .NET 10 and ASP.NET Core 10 runtimes, which are included in the SDK. Check installed versions with `dotnet --list-sdks` and `dotnet --list-runtimes`.
+- Logi Plugin Service installed by the host application, providing its .NET 10 `PluginApi.dll`.
 - NuGet access for Newtonsoft.Json 13.0.3, or a local package source.
 
 The project is self-contained apart from its host SDK and NuGet dependencies. No other plugin checkout is required.
 
-### Host SDK discovery
+### Host API
 
-The build selects the SDK directory in this order:
+By default, the project references `PluginApi.dll` directly from the installed Logi Plugin Service:
 
-1. An explicit `-p:PluginApiDir="/path/to/sdk"` argument.
-2. The `OPENHAB_PLUGIN_SDK_DIR` environment variable.
-3. The repository-local `sdk/` directory, if it contains `PluginApi.dll`.
-4. The standard host installation directory:
-   - macOS: `/Applications/Utilities/LogiPluginService.app/Contents/MonoBundle/`
-   - Windows: `C:/Program Files/Logi/LogiPluginService/`
+- macOS: `/Applications/Utilities/LogiPluginService.app/Contents/MonoBundle/PluginApi.dll`
+- Windows: `C:/Program Files/Logi/LogiPluginService/PluginApi.dll`
 
-For a simple local setup, place a compatible `PluginApi.dll` in `sdk/` at the repository root. Keep any accompanying SDK reference assemblies in that directory if required. This folder is ignored by Git and host binaries are not distributed with the source. The build prints the selected SDK directory.
+No DLL needs to be copied into the repository. The host API is not downloaded by package restore and is not bundled in the plugin output. The former local `sdk/` directory is no longer selected automatically, so an old API copy cannot silently override the installed host.
 
-The host SDK must be compatible with the project target, `net8.0`. If your installed host supplies an API targeting .NET 10, provide a compatible SDK through one of the first three options. Installing a newer compiler alone does not make a .NET 10 API compatible with a .NET 8 target.
+If the host is installed elsewhere, use `-p:PluginApiDir="/path/to/sdk"` or set `OPENHAB_PLUGIN_SDK_DIR` to the directory containing the DLL. The command-line property takes precedence over the environment variable. The build prints the selected directory.
+
+Both the plugin and its integration tests target `net10.0`. `global.json` selects a .NET 10 SDK and permits newer .NET 10 feature bands. Install the [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0) if `dotnet --list-sdks` does not show a 10.0 SDK. Installing only the runtime is insufficient for compilation.
+
+The optional `LogiPluginTool` utility creates project templates and packages; it is not required to build this existing solution. Its installation does not replace the host API reference.
 
 ### Build
 
@@ -45,7 +45,7 @@ From the directory containing your checkout:
 cd LoupedeckOpenHABPlugin-NG
 ```
 
-Once the SDK is available through discovery, build with automatic package restoration:
+With the .NET 10 SDK and host application installed, build with automatic package restoration:
 
 ```bash
 dotnet build OpenHABPlugin.sln --configuration Release
@@ -89,7 +89,7 @@ bin/Release/
 
 Debug output is placed under `bin/Debug/`. The host API is not copied to the output. Legacy `OpenHABPlugin.dll` files are removed from the build output so they cannot accidentally be bundled with NG.
 
-A successful .NET 8 build does not by itself verify loading or native rendering in every host version. Loading in the installed .NET 10 host and rendering on actual hardware still require separate verification.
+A successful .NET 10 build against the installed host API does not by itself verify loading or native rendering on actual hardware; those still require a host test.
 
 ### Optional local registration
 

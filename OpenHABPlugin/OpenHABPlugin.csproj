@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Loupedeck.OpenHABPluginNG</RootNamespace>
     <AssemblyName>OpenHABPluginNG</AssemblyName>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
@@ -13,7 +13,6 @@
     <PluginBuildRoot>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../bin/$(Configuration)'))</PluginBuildRoot>
     <OutputPath>$(PluginBuildRoot)/$(PluginPlatform)/</OutputPath>
     <PluginApiDir Condition="'$(PluginApiDir)' == '' and '$(OPENHAB_PLUGIN_SDK_DIR)' != ''">$(OPENHAB_PLUGIN_SDK_DIR)</PluginApiDir>
-    <PluginApiDir Condition="'$(PluginApiDir)' == '' and Exists('$(MSBuildProjectDirectory)/../sdk/PluginApi.dll')">$(MSBuildProjectDirectory)/../sdk</PluginApiDir>
     <PluginApiDir Condition="'$(PluginApiDir)' == '' and '$(OS)' == 'Windows_NT'">C:/Program Files/Logi/LogiPluginService/</PluginApiDir>
     <PluginApiDir Condition="'$(PluginApiDir)' == ''">/Applications/Utilities/LogiPluginService.app/Contents/MonoBundle/</PluginApiDir>
     <InstallPluginLink Condition="'$(InstallPluginLink)' == ''">false</InstallPluginLink>
@@ -32,7 +31,7 @@
     <None Include="../licenses/*" Link="licenses/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="VerifyPluginApi" BeforeTargets="ResolveAssemblyReferences">
-    <Error Condition="!Exists('$(PluginApiDir)/PluginApi.dll')" Text="PluginApi.dll missing. Place a .NET 8-compatible host SDK in sdk/, set OPENHAB_PLUGIN_SDK_DIR, or pass /p:PluginApiDir=/path/to/sdk." />
+    <Error Condition="!Exists('$(PluginApiDir)/PluginApi.dll')" Text="PluginApi.dll missing from the host installation. Install Logi Plugin Service, set OPENHAB_PLUGIN_SDK_DIR, or pass /p:PluginApiDir=/path/to/sdk. This project targets .NET 10." />
     <Message Importance="High" Text="OpenHAB NG host SDK: $(PluginApiDir)" />
   </Target>
   <Target Name="CopyMetadata" AfterTargets="Build">

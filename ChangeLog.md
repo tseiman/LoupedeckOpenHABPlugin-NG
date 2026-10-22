@@ -1,5 +1,14 @@
 # ChangeLog
 
+## 2026-10-23 – Use the installed .NET 10 host API
+
+- The plugin and integration tests now target `net10.0`, matching the `PluginApi.dll` shipped with the installed Logi Plugin Service. The installed API references System.Runtime 10.0 and cannot be compiled against the previous .NET 8 target (CS1705).
+- The default reference is the DLL in the standard host installation directory. Removed automatic selection of the former local SDK copy; explicit PluginApiDir and OPENHAB_PLUGIN_SDK_DIR overrides remain available.
+- Added global.json to select .NET SDK 10.0.100 or a newer .NET 10 feature band. A .NET 10 SDK is required once per development machine; its compiler and included runtimes are shared by the plugin, integration tests, and current tooling.
+- Updated the main README with the installed-host workflow and .NET 10 prerequisites. No host DLL is copied into the repository or bundled in the plugin output.
+- Release build against the installed host API succeeded with SDK 10.0.402, without warnings or errors. All local HTTP/WebSocket/icon integration checks passed under .NET 10. Hardware rendering and loading in the host remain separate runtime checks.
+- Validation used a temporary SDK installation outside the repository. The existing system-wide .NET installation was not modified during validation.
+
 ## 2026-10-23 – Independent SDK discovery and development registration
 
 - Added host SDK discovery through an explicit PluginApiDir, OPENHAB_PLUGIN_SDK_DIR, a Git-ignored local sdk/ directory, and the standard host installation path, in that order. A compatible local SDK now allows a normal build without path arguments.
