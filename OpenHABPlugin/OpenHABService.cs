@@ -31,6 +31,7 @@ namespace Loupedeck.OpenHABPluginNG
         private HttpClient? _http;
         private Uri? _baseUri;
         private string _token = "";
+        private OpenHABIconCache? _icons;
         private volatile bool _connected;
         public bool IsWebSocketConnected => _connected;
         public event EventHandler<OpenHABEventArgs>? ItemChanged;
@@ -64,6 +65,11 @@ namespace Loupedeck.OpenHABPluginNG
                 lock (_sync) { _items.Clear(); _versions.Clear(); _revision = 0; _generation++; }
                 _stop = new CancellationTokenSource();
                 var ct = _stop.Token;
+                var generation = _generation;
+                _icons = new OpenHABIconCache(_http, uri, ct, name =>
+                {
+                    if (generation == _generation && GetItem(name) is OpenHABCommandItem item) Notify(item);
+                });
                 _worker = Task.Run(() => RunAsync(ct));
             }
             finally { _lifecycle.Release(); }
@@ -252,6 +258,20 @@ namespace Loupedeck.OpenHABPluginNG
         }
         public string? GetStateOfItem(string parameter) => GetItem(parameter)?.State;
         public string GetItemLabel(string parameter) => GetItem(parameter)?.Label ?? parameter;
+        public string? GetCachedIconSvg(string parameter, string? categoryOverride = null)
+        {
+            var item = GetItem(parameter);
+            if (item?.Name == null || item.State == null) return null;
+            var category = categoryOverride ?? item.Category;
+            if (string.IsNullOrWhiteSpace(category)) return null;
+            var state = item.State;
+            if (category == "light" || item.Type == "Dimmer")
+            {
+                if (state == "ON") state = "100";
+                else if (state == "OFF") state = "0";
+            }
+            return _icons?.Get(item.Name, category, state);
+        }
         public async Task SendCommandAsync(string parameter, string command)
         {
             var item = GetItem(parameter) ?? throw new ArgumentException("Unknown item.");
@@ -299,6 +319,8 @@ namespace Loupedeck.OpenHABPluginNG
         {
             _stop?.Cancel();
             if (_worker != null) try { await _worker.ConfigureAwait(false); } catch (OperationCanceledException) { }
+            if (_icons != null) await _icons.StopAsync().ConfigureAwait(false);
+            _icons = null;
             _http?.Dispose(); _http = null;
             _stop?.Dispose(); _stop = null; _worker = null;
             SetConnected(false);

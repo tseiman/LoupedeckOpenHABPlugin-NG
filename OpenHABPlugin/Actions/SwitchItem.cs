@@ -21,7 +21,9 @@ namespace Loupedeck.OpenHABPluginNG.Actions
                 icon = category.Contains("light") || category.Contains("lamp") || category.Contains("bulb") ? "lamp" :
                     category.Contains("socket") || category.Contains("outlet") || category.Contains("poweroutlet") ? "socket" : "switch";
             var value = item?.State == "ON" ? "AN" : item?.State == "OFF" ? "AUS" : "—";
-            return ItemPresentation.Render(size, Service.GetItemLabel(parameter), value, icon, item?.State == "ON");
+            var categoryOverride = _icon == "lamp" ? "light" : _icon == "socket" ? "socket" : null;
+            return ItemPresentation.Render(size, Service.GetItemLabel(parameter), value, icon, item?.State == "ON",
+                Service.GetCachedIconSvg(parameter, categoryOverride));
         }
     }
     public class LampItem : SwitchItem { public LampItem() : base("Lamp ON/OFF", "lamp") { } }

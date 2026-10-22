@@ -1,5 +1,19 @@
 # ChangeLog
 
+## 2026-10-23 – OpenHAB-SVGs und feste F7-Rollladensymbole
+
+- Rollladen-Aktionen fest mit den originalen Framework7-SVGs `arrowtriangle_up`, `stop` und `arrowtriangle_down` verbunden. Pfeile grau (#929292), STOP rot (#ff4545), entsprechend der Web-UI-Vorlage. Die drei Tasten werden vom Benutzer vertikal als AUF/STOP/AB angeordnet; die Positionsanzeige bleibt erhalten.
+- Die F7-SVGs liegen als eingebettete lokale Ressourcen vor und benötigen keine Icon-Schrift oder Netzwerkverbindung. Die originale MIT-Lizenz und Herkunftsnachweise werden mit der Build-Ausgabe ausgeliefert.
+- Lampen, Steckdosen und Dimmer verwenden bevorzugt die SVGs des konfigurierten OpenHAB-Servers über `/icon/<Kategorie>?format=svg&anyFormat=true&iconset=classic&state=<Zustand>`. Die serverseitigen Farben und Zustandsvarianten bleiben erhalten.
+- Lampen ON/OFF werden auf 100/0 abgebildet; Dimmer übergeben ihren tatsächlichen Wert, Steckdosen ON/OFF. Explizite Lampen-/Steckdosenaktionen verwenden `light` bzw. `socket`; automatische Aktionen die Kategorie des Items. Dimmer ohne Kategorie verwenden `light`.
+- Nicht blockierender Speicher-Cache für bis zu 128 Kategorie/Zustand-Kombinationen, höchstens vier parallele Downloads, fünf Sekunden Abrufzeitlimit und 256 KiB pro SVG. Gleiche Abrufe werden zusammengefasst; erfolgreiche Einträge bei Bedarf nach fünf Minuten erneuert, fehlgeschlagene Abrufe frühestens nach 30 Sekunden wiederholt. Kein Download innerhalb des synchronen Render-Aufrufs.
+- Nach dem Eintreffen eines Icons erfolgt eine neue Anzeige-Benachrichtigung. Bei unbekannten Zuständen, fehlenden Icons, ungültigen SVGs oder Darstellungsfehlern bleiben lokale Symbole als Ersatz verfügbar. Cache und Downloads sind an die Server-Session gebunden und werden beim Wechsel/Entladen beendet.
+- Integrationstests um authentifizierten Icon-Abruf, Zustandscodierung, Zwischenstufen, Cache-Treffer, Zusammenfassen gleicher Requests, Wechsel zwischen ON/OFF und Fehler-Fallback erweitert; alle lokalen Tests erfolgreich.
+- Release-Build erfolgreich ohne Warnungen/Fehler; alle drei F7-Ressourcen und die Lizenzdateien in der Ausgabe geprüft.
+- Die fünf vom Benutzer genannten URLs liefern über curl mit aktiver Zertifikatsprüfung HTTP 200 und gültige, unterschiedliche SVG-Inhalte. Der optionale direkte Live-Test des .NET-Clients auf diesem Mac scheitert dagegen bei der TLS-Aushandlung mit `AppleCrypto: bad certificate format`, sowohl mit der installierten .NET-8- als auch der .NET-9-Laufzeit. Die Ursache ist noch nicht geklärt; es wird keine Zertifikatsprüfung umgangen. Ein erfolgreicher Icon-Abruf im tatsächlichen Logi-Host ist deshalb noch nicht bestätigt.
+- README um vertikale Anordnung, Icon-Verhalten, Cache und optionalen reinen Icon-Live-Test über `OPENHAB_ICON_SERVER` ergänzt. Keine Befehle an reale Geräte gesendet.
+
+
 ## 2026-10-23 – OpenHAB NG: Live-Zustände und neue Bedienelemente
 
 ### Ausgangsfehler

@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
+using System.Collections.Concurrent;
 
 namespace Loupedeck.OpenHABPluginNG.Actions
 {
     internal static class ItemPresentation
     {
+        private static readonly ConcurrentDictionary<string, string> FixedIcons = new ConcurrentDictionary<string, string>();
         public static PluginProfileActionTree Tree(string title, IEnumerable<OpenHABCommandItem> items)
         {
             var tree = new PluginProfileActionTree(title);
@@ -18,7 +21,7 @@ namespace Loupedeck.OpenHABPluginNG.Actions
             return tree;
         }
 
-        public static BitmapImage Render(PluginImageSize size, string label, string value, string symbol, bool active = false)
+        public static BitmapImage Render(PluginImageSize size, string label, string value, string symbol, bool active = false, string serverSvg = null)
         {
             using var bitmap = new BitmapBuilder(size);
             var foreground = active ? new BitmapColor(0xff, 0xd1, 0x55) : new BitmapColor(0xa8, 0xb2, 0xc3);
@@ -28,8 +31,10 @@ namespace Loupedeck.OpenHABPluginNG.Actions
             var iconSize = Math.Max(12, Math.Min(bitmap.Width / 2, bitmap.Height / 2));
             if (!string.IsNullOrEmpty(symbol))
             {
-                using var icon = BitmapImage.FromSvg(Svg(symbol, active));
-                bitmap.DrawImage(icon, (bitmap.Width - iconSize) / 2, bitmap.Height / 4, iconSize, iconSize);
+                BitmapImage icon;
+                try { icon = BitmapImage.FromSvg(serverSvg ?? Svg(symbol, active)); }
+                catch { icon = BitmapImage.FromSvg(Svg(symbol, active)); }
+                using (icon) bitmap.DrawImage(icon, (bitmap.Width - iconSize) / 2, bitmap.Height / 4, iconSize, iconSize);
             }
             bitmap.DrawText(value ?? "—", 2, bitmap.Height * 3 / 4, bitmap.Width - 4, bitmap.Height / 4, foreground, font, 0);
             return bitmap.ToImage();
@@ -38,15 +43,20 @@ namespace Loupedeck.OpenHABPluginNG.Actions
         // Code-native SVG paths remain sharp at every supported key size.
         internal static string Svg(string symbol, bool active)
         {
+            if (symbol == "arrowtriangle_up" || symbol == "arrowtriangle_down" || symbol == "stop")
+                return FixedIcons.GetOrAdd(symbol, name =>
+                {
+                    using var stream = typeof(ItemPresentation).Assembly.GetManifestResourceStream("Loupedeck.OpenHABPluginNG.Resources.F7." + name + ".svg")
+                        ?? throw new InvalidOperationException("Missing embedded F7 icon: " + name);
+                    using var reader = new StreamReader(stream);
+                    return reader.ReadToEnd().Replace("<svg ", "<svg fill=\"" + (name == "stop" ? "#ff4545" : "#929292") + "\" ");
+                });
             var color = active ? "#ffd155" : "#a8b2c3";
             var path = symbol switch
             {
                 "lamp" => "<path d='M23 38C23 29 18 27 18 19a14 14 0 0 1 28 0c0 8-5 10-5 19z'/><path d='M24 45h16M26 52h12M28 58h8'/>" +
                     (active ? "<path d='M3 20h7M54 20h7M8 3l6 6M50 9l6-6M3 38l8-4M53 34l8 4'/>" : ""),
                 "socket" => "<rect x='8' y='5' width='48' height='54' rx='8'/><circle cx='32' cy='32' r='17'/><path d='M25 28v8M39 28v8M32 15v5M32 44v5'/>",
-                "up" => "<path d='M12 36l20-20 20 20M32 16v42'/>",
-                "down" => "<path d='M12 28l20 20 20-20M32 6v42'/>",
-                "stop" => "<rect x='15' y='15' width='34' height='34' rx='2'/>",
                 "dimmer" => "<circle cx='32' cy='32' r='16'/><path d='M32 1v8M32 55v8M1 32h8M55 32h8M9 9l6 6M49 49l6 6M9 55l6-6M49 15l6-6'/>",
                 _ => "<path d='M32 5v27M19 12a23 23 0 1 0 26 0'/>"
             };

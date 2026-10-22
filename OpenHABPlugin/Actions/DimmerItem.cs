@@ -64,6 +64,7 @@ namespace Loupedeck.OpenHABPluginNG.Actions
         protected override BitmapImage GetAdjustmentImage(string parameter, PluginImageSize size) => Image(parameter, size);
         private BitmapImage Image(string parameter, PluginImageSize size) => ItemPresentation.Render(size,
             Service.GetItemLabel(parameter), GetAdjustmentValue(parameter), "dimmer",
-            OpenHABService.ExtractNumericalValue(Service.GetStateOfItem(parameter)) > 0 || Service.GetStateOfItem(parameter) == "ON");
+            OpenHABService.ExtractNumericalValue(Service.GetStateOfItem(parameter)) > 0 || Service.GetStateOfItem(parameter) == "ON",
+            Service.GetCachedIconSvg(parameter, string.IsNullOrWhiteSpace(Service.GetItem(parameter)?.Category) ? "light" : Service.GetItem(parameter).Category));
     }
 }

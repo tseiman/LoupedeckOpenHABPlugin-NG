@@ -9,7 +9,7 @@ OpenHAB NG verbindet Loupedeck CT, Live, Live S und Razer Stream Controller mit 
 - REST-Abgleich alle fünf Sekunden ohne WebSocket, sonst alle 30 Sekunden zur Korrektur verpasster Ereignisse.
 - Schalter mit zustandsabhängigen Symbolen; automatische Lampen-/Steckdosenauswahl anhand der OpenHAB-Icon-Kategorie sowie explizite Aktionen **Lamp ON/OFF** und **Socket ON/OFF**.
 - Dimmer mit Prozentanzeige, Drehgeber zur Einstellung von 0 bis 100 und Tastendruck zum Ein-/Ausschalten.
-- Rollladensteuerung mit drei nebeneinander platzierbaren Widgets **AUF**, **STOP**, **AB**. Jedes zeigt die gemeldete Position und sendet den jeweiligen Befehl an dasselbe ausgewählte `Rollershutter`-Item.
+- Rollladensteuerung mit drei vertikal untereinander platzierbaren Widgets **AUF**, **STOP**, **AB**. Jedes zeigt die gemeldete Position und sendet den jeweiligen Befehl an dasselbe ausgewählte `Rollershutter`-Item.
 - Live-Zustandsanzeige für beliebige Items und ein Widget für den WebSocket-Verbindungsstatus.
 
 ## Build-Anleitung
@@ -105,15 +105,21 @@ Beim Ändern der URL bleibt der Token erhalten; beim erneuten Konfigurieren wird
 
 ## Aktionen und Anzeigen
 
-**Switch (automatic icon)** verwendet die Item-Kategorie: `light`, `lamp` und `bulb` ergeben das Lampensymbol; Kategorien mit `socket` oder `outlet` das Steckdosensymbol. Andere Kategorien erhalten einen allgemeinen Schalter. Mit **Lamp ON/OFF** bzw. **Socket ON/OFF** lässt sich das Symbol unabhängig von der Kategorie festlegen. Gelb bedeutet AN, Grau AUS; unbekannte Werte werden als `—` angezeigt. Der gemeldete Serverzustand ist maßgeblich, ein Tastendruck täuscht keinen bestätigten Zustand vor.
+**Switch (automatic icon)** verwendet die Item-Kategorie: `light`, `lamp` und `bulb` ergeben das Lampensymbol; Kategorien mit `socket` oder `outlet` das Steckdosensymbol. Andere Kategorien erhalten einen allgemeinen Schalter. Mit **Lamp ON/OFF** bzw. **Socket ON/OFF** lässt sich das Symbol unabhängig von der Kategorie festlegen. Die Symbole werden bevorzugt direkt von OpenHAB über `/icon/<Kategorie>?format=svg&anyFormat=true&state=<Zustand>&iconset=classic` geladen und behalten die dort definierten Farben. Für Licht entspricht OFF dem Wert 0 und ON dem Wert 100; Dimmer verwenden ihren tatsächlichen Prozentwert, Steckdosen ON/OFF. Bei fehlender Kategorie, unbekanntem Zustand oder Abrufproblemen dienen die lokalen gelben/grauen Symbole als Ersatz. Unbekannte Werte werden als `—` angezeigt. Der gemeldete Serverzustand ist maßgeblich, ein Tastendruck täuscht keinen bestätigten Zustand vor.
 
-**Dimmer (%)** zeigt Zahlen als Prozent, `ON` als `100 %`, `OFF` als `0 %` und `NULL`/`UNDEF` als `—`. Drehbewegungen sind auf 0 bis 100 begrenzt. Schnelle Drehbewegungen werden auch bei verzögerter Rückmeldung aufaddiert.
+**Dimmer (%)** zeigt Zahlen als Prozent, `ON` als `100 %`, `OFF` als `0 %` und `NULL`/`UNDEF` als `—`. Auch das OpenHAB-Icon folgt dem Prozentwert, beispielsweise mit `state=36`. Drehbewegungen sind auf 0 bis 100 begrenzt. Schnelle Drehbewegungen werden auch bei verzögerter Rückmeldung aufaddiert.
 
-Für den **Rollladen** drei Tasten nebeneinander mit **Rollladen AUF**, **Rollladen STOP**, **Rollladen AB** belegen und jeweils dasselbe Item wählen. Das ist eine Gruppe aus drei frei platzierbaren Widgets; es wird kein fertiges dreifeldriges Layout automatisch im Profil angelegt. Bei OpenHAB entspricht 0 % vollständig geöffnet und 100 % vollständig geschlossen.
+Für den **Rollladen** drei Tasten vertikal untereinander mit **Rollladen AUF**, **Rollladen STOP**, **Rollladen AB** belegen und jeweils dasselbe Item wählen. Das ist eine Gruppe aus drei frei platzierbaren Widgets; es wird kein fertiges dreifeldriges Layout automatisch im Profil angelegt. Die drei Symbole sind lokal eingebettete originale Framework7-SVGs: AUF verwendet `arrowtriangle_up` in Grau, STOP das rote `stop`-Quadrat, AB `arrowtriangle_down` in Grau, entsprechend der Web-UI-Vorlage. Dafür ist weder ein Webabruf noch eine installierte F7-Schrift erforderlich. Die vertikale Anordnung nimmt der Benutzer im Profil vor. Bei OpenHAB entspricht 0 % vollständig geöffnet und 100 % vollständig geschlossen.
 
 **Live state** zeigt den aktuellen Item-Wert. OpenHAB-spezifische Java-/printf-Formatierungen werden nicht als C#-Formatstrings ausgeführt; Einheiten bleiben im Rohwert erhalten.
 
 **Connection status** zeigt `LIVE`, wenn die WebSocket-Verbindung steht, andernfalls `REST / OFFLINE`. Die Statusanzeige allein bestätigt keine Erreichbarkeit der einzelnen Geräte. Verbindungs- und HTTP-Probleme erscheinen im Host-Log mit Präfix `[OpenHAB NG]`.
+
+## Icon-Abruf und Cache
+
+Die Tastenanzeige wartet nicht auf Netzwerkanfragen: SVGs werden im Hintergrund geladen und lösen nach dem Eintreffen eine erneute Anzeige aus. Gleiche Kategorie/Zustand-Kombinationen teilen einen Abruf. Der Speicher-Cache umfasst höchstens 128 Varianten, verwendet höchstens vier parallele Downloads und erneuert erfolgreiche Einträge bei Bedarf nach fünf Minuten. Fehlgeschlagene Abrufe werden frühestens nach 30 Sekunden erneut versucht. Cache und Downloads werden beim URL-Wechsel bzw. Entladen beendet. Der konfigurierte API-Token wird auch für die Icons verwendet.
+
+Der Abruf verwendet den konfigurierten OpenHAB-Server, keinen im Code fest eingebauten privaten Hostnamen.
 
 ## Integrationstests
 
@@ -142,3 +148,13 @@ Plugin-ID: `OpenHABNG`, Anzeigename: `OpenHAB NG`, Assembly: `OpenHABPluginNG.dl
 Diese Weiterentwicklung basiert auf [Loupedeck_OpenHABPlugin von Arno Pernozzoli](https://github.com/pernozzoli/Loupedeck_OpenHABPlugin). Die ursprünglichen Lizenz- und Copyright-Angaben bleiben erhalten. Änderungen und Prüfergebnisse stehen in [ChangeLog.md](ChangeLog.md). Lizenz: MIT, siehe [LICENSE](LICENSE).
 
 Protokollreferenzen: [OpenHAB WebSocket API](https://www.openhab.org/docs/configuration/websocket.html), [OpenHAB 5.0 WebSocket API](https://v50.openhab.org/docs/configuration/websocket.html), [Item-Typen](https://www.openhab.org/docs/configuration/items.html).
+
+Optionaler Live-Test nur für SVG-Abrufe, ohne Item-Abfragen oder Gerätebefehle auf dem angegebenen Server:
+
+```bash
+OPENHAB_ICON_SERVER=https://openhab.tsei.mdn:8443 dotnet run --project tests/OpenHAB.IntegrationTests.csproj --no-restore -- --icons-only
+```
+
+Auf diesem Mac liefert der direkte HTTPS-Abruf über curl gültige SVGs, während die installierten .NET-8- und .NET-9-Laufzeiten am Server mit `AppleCrypto: bad certificate format` scheitern. Die Zertifikatsprüfung bleibt aktiviert. Die Ursache und das Verhalten im tatsächlichen Logi-Host müssen noch geprüft werden; bis dahin stehen dort gegebenenfalls nur die lokalen Ersatzsymbole zur Verfügung.
+
+Die F7-Symbole stammen aus [Framework7 Icons](https://github.com/framework7io/framework7-icons). Die MIT-Lizenz und Herkunftsnachweise unter `licenses/` werden in die Build-Ausgabe übernommen.

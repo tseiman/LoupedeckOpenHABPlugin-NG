@@ -24,6 +24,28 @@ static string Event(string name, string state, string type = "ItemStateEvent") =
     ["payload"] = new JObject { ["type"] = "String", ["value"] = state }.ToString()
 }.ToString();
 
+static async Task TestLiveIcons(string url)
+{
+    using var http = new HttpClient(new HttpClientHandler { UseCookies = false });
+    var uri = OpenHABService.ValidateBaseUrl(url);
+    using var preflight = await http.GetAsync(new Uri(uri, "icon/light?format=svg&anyFormat=true&state=0&iconset=classic"));
+    preflight.EnsureSuccessStatusCode();
+    using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+    var icons = new OpenHABIconCache(http, uri, stop.Token, _ => { });
+    foreach (var pair in new[] { ("light", "0"), ("light", "36"), ("light", "100"), ("socket", "OFF"), ("socket", "ON") })
+    {
+        icons.Get("smoke-test", pair.Item1, pair.Item2);
+        await Until(() => icons.Get("smoke-test", pair.Item1, pair.Item2) != null,
+            "live server SVG: " + pair.Item1 + " state=" + pair.Item2, 8);
+    }
+    stop.Cancel(); await icons.StopAsync();
+}
+if (args.Contains("--icons-only"))
+{
+    await TestLiveIcons(Environment.GetEnvironmentVariable("OPENHAB_ICON_SERVER") ?? throw new ArgumentException("Set OPENHAB_ICON_SERVER"));
+    return;
+}
+
 Console.WriteLine("Starting local integration server...");
 var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions { ContentRootPath = AppContext.BaseDirectory });
 builder.Logging.ClearProviders();
@@ -34,6 +56,7 @@ server.UseWebSockets();
 var states = new ConcurrentDictionary<string, string>(new[] {
     new KeyValuePair<string,string>("Lamp", "OFF"), new("Socket", "ON"), new("Dimmer", "37"), new("Blind", "50") });
 var commands = new ConcurrentQueue<(string Name, string Command)>();
+var iconRequests = new ConcurrentQueue<(string Category, string State)>();
 var sockets = new ConcurrentDictionary<int, WebSocket>();
 var sends = new ConcurrentDictionary<int, SemaphoreSlim>();
 var connections = 0;
@@ -70,6 +93,16 @@ server.MapPost("/rest/items/{name}", async (HttpContext context, string name) =>
     if (failCommands) { context.Response.StatusCode = 500; return; }
     // Physical state deliberately does not follow commands immediately.
     context.Response.StatusCode = 202;
+});
+server.MapGet("/icon/{category}", async (HttpContext context, string category) =>
+{
+    if (context.Request.Headers.Authorization != "Bearer test-token") { context.Response.StatusCode = 401; return; }
+    var state = context.Request.Query["state"].ToString();
+    iconRequests.Enqueue((category, state));
+    await Task.Delay(50);
+    if (category == "missing") { context.Response.StatusCode = 404; return; }
+    context.Response.ContentType = "image/svg+xml";
+    await context.Response.WriteAsync("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 56 56'><path data-state='" + state + "' d='M1 1h10v10H1z'/></svg>");
 });
 async Task AcceptSocket(HttpContext context)
 {
@@ -181,6 +214,28 @@ System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.Cultu
 Check(OpenHABService.ExtractNumericalValue("12.5 W") == 12.5, "numbers use invariant OpenHAB formatting");
 System.Globalization.CultureInfo.CurrentCulture = culture;
 
+Check(service.GetCachedIconSvg("Lamp", "light") == null, "first icon lookup returns immediately without waiting for HTTP");
+for (var i = 0; i < 20; i++) service.GetCachedIconSvg("Lamp", "light");
+await Until(() => service.GetCachedIconSvg("Lamp", "light") != null, "authenticated OpenHAB SVG downloaded in background");
+Check(iconRequests.Count(r => r == ("light", "0")) == 1, "OFF maps to light state=0 and duplicate downloads are coalesced");
+Check(service.GetCachedIconSvg("Dimmer") == null, "new dimmer level starts a separate icon fetch");
+await Until(() => service.GetCachedIconSvg("Dimmer") != null, "dimmer intermediate-state SVG cached");
+Check(iconRequests.Any(r => r == ("light", "62")), "actual dimmer level is forwarded unchanged");
+service.GetCachedIconSvg("Socket", "socket");
+await Until(() => service.GetCachedIconSvg("Socket", "socket") != null, "socket ON icon fetched");
+Check(iconRequests.Any(r => r == ("socket", "ON")), "socket uses ON rather than a brightness value");
+states["Socket"] = "OFF";
+await Push(Event("Socket", "OFF"));
+await Until(() => service.GetStateOfItem("Socket") == "OFF", "socket state changed before selecting its icon");
+Check(service.GetCachedIconSvg("Socket", "socket") == null, "new state never reuses the previous state's SVG");
+await Until(() => service.GetCachedIconSvg("Socket", "socket") != null, "socket OFF SVG cached");
+Check(iconRequests.Any(r => r == ("socket", "OFF")), "socket OFF reaches icon endpoint");
+service.GetCachedIconSvg("Lamp", "missing");
+await Until(() => iconRequests.Any(r => r.Category == "missing"), "missing remote icon requested once");
+await Task.Delay(150);
+Check(service.GetCachedIconSvg("Lamp", "missing") == null, "missing remote icon leaves local fallback available");
+Check(service.GetCachedIconSvg("Lamp", "missing") == null && iconRequests.Count(r => r.Category == "missing") == 1, "failed icon requests are throttled");
+
 var beforeReconnect = connections;
 foreach (var socket in sockets.Values) socket.Abort();
 await Until(() => connections > beforeReconnect && service.IsWebSocketConnected, "automatic reconnect after connection loss");
@@ -202,4 +257,6 @@ var requestsAfterStop = restRequests;
 await Task.Delay(5500);
 Check(restRequests == requestsAfterStop, "no polling continues after unload");
 await server.StopAsync();
+var liveIconServer = Environment.GetEnvironmentVariable("OPENHAB_ICON_SERVER");
+if (!string.IsNullOrWhiteSpace(liveIconServer)) await TestLiveIcons(liveIconServer);
 Console.WriteLine("All integration checks passed.");

@@ -21,6 +21,8 @@
     </Reference>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <EmbeddedResource Include="Resources/*.png" />
+    <EmbeddedResource Include="Resources/F7/*.svg" />
+    <None Include="../licenses/*" Link="licenses/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="VerifyPluginApi" BeforeTargets="ResolveAssemblyReferences">
     <Error Condition="!Exists('$(PluginApiDir)/PluginApi.dll')" Text="PluginApi.dll missing. Set /p:PluginApiDir=/path/to/a/net8-compatible/sdk." />
