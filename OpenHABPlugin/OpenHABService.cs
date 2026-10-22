@@ -7,17 +7,14 @@ using System.Linq;
 using System.Net.WebSockets;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Security.Policy;
 using System.Text;
 
 #nullable enable
 namespace Loupedeck.OpenHABPlugin
 {
     using System;
-    using System.Runtime.Remoting.Messaging;
     using System.Text.RegularExpressions;
 
-    using Loupedeck.Devices.Loupedeck2Devices;
 
     public class OpenHABService
     {

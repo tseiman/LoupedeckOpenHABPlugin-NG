@@ -35,3 +35,12 @@ When the OpenHAB URL changes you may have to restart the Loupedeck application. 
 ## Support
 
 If you'd like to drop me a star for the hours I've spent on this.
+
+
+## Building the NG version
+
+The NG project follows the ATEM plugin build configuration: .NET 8, SDK-style project, and PackageReference. Install a .NET 8 or newer SDK and provide a compatible .NET 8 PluginApi.dll. Build with `dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir=/path/to/sdk` from the repository root. NuGet restore is automatic.
+
+By default, PluginApiDir points to LogiPluginService on macOS and Windows. If that installation contains an API targeting a newer framework (the API currently installed on this Mac targets .NET 10), select a compatible API directory explicitly. The verified local build used `/Users/tseiman/Downloads/LoupedeckAtemControlerPlugin/bin/Debug/mac`. This path is a local build input, not a repository dependency or a default.
+
+Outputs are under `bin/Release/mac` or `bin/Release/win`, with metadata in the adjacent `metadata` folder. Building does not install the plugin or restart the host. The successful compilation has not yet been followed by a host loading test or an OpenHAB integration test.
