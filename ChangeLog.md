@@ -1,5 +1,11 @@
 # ChangeLog
 
+## 2026-10-23 – Portable documentation examples
+
+- Removed developer-specific absolute paths and the private OpenHAB hostname from all project documentation, including historical changelog entries.
+- Build and test examples now use a checkout-relative directory, a compatible SDK placeholder, an optional relative ATEM checkout path, and a generic offline NuGet feed. The live icon test uses an example server address.
+- Historical build commands are shown with portable path substitutions. Public repository URLs, standard host installation paths, and license attribution remain intact.
+
 ## 2026-10-23 – English project documentation
 
 - Translated the main README and the complete changelog, including historical entries, into English.
@@ -78,9 +84,9 @@
 ### Build and remaining validation
 
 - Offline package restoration from the existing Newtonsoft.Json 13.0.3 cache succeeded.
-- Release build against the .NET 8 API in `/Users/tseiman/Downloads/LoupedeckAtemControlerPlugin/bin/Debug/mac` succeeded without compiler errors. Full compilation reported four existing nullability warnings (CS8622 and CS8604); an unchanged incremental build also succeeded.
+- Release build against the .NET 8 API in the existing ATEM build output (`bin/Debug/mac`) succeeded without compiler errors. Full compilation reported four existing nullability warnings (CS8622 and CS8604); an unchanged incremental build also succeeded.
 - Output at this stage: `bin/Release/mac/OpenHABPlugin.dll`, Newtonsoft.Json, the dependency manifest, and copied metadata.
-- Build command from the repository: `dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir=/Users/tseiman/Downloads/LoupedeckAtemControlerPlugin/bin/Debug/mac`. The offline check first restored packages using `dotnet restore OpenHABPlugin.sln --source /Users/tseiman/.nuget/packages/newtonsoft.json/13.0.3 --packages ./packages`, then built with `--no-restore`.
+- Build command from the repository: `dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir="/path/to/compatible/SDK"`. The offline check first restored packages using `dotnet restore OpenHABPlugin.sln --source "/path/to/offline-nuget-feed" --packages ./packages`, then built with `--no-restore`.
 - The installed Logi host already provides a .NET 10 API, which was not used for the .NET 8 build. Successful compilation against the ATEM API does not replace host loading or OpenHAB functionality tests; those remain outstanding.
 
 ## 2026-10-22 – Discarded intermediate step: .NET Framework 4.8 build configuration
@@ -96,7 +102,7 @@ This approach was discarded after the user clarified the requirement. The .NET 8
 
 ### Improvements adopted from the ATEM plugin
 
-The comparison primarily covered `src/LoupedeckAtemControlerPlugin/LoupedeckAtemControlerPlugin.csproj` and `src/Directory.Build.props` in `/Users/tseiman/Downloads/LoupedeckAtemControlerPlugin`. The ATEM project was not modified.
+The comparison primarily covered `src/LoupedeckAtemControlerPlugin/LoupedeckAtemControlerPlugin.csproj` and `src/Directory.Build.props` in the `LoupedeckAtemControlerPlugin` repository. The ATEM project was not modified.
 
 - Made the SDK directory configurable through `PluginApiDir`, retaining the previous Loupedeck paths as defaults at that stage. Set `Private=False` so the host-provided `PluginApi.dll` was not copied into the plugin output.
 - Added an early, clear error for a missing SDK file. An alternative compatible SDK directory could be supplied with `/p:PluginApiDir=/path/to/SDK`.
@@ -119,8 +125,8 @@ The comparison primarily covered `src/LoupedeckAtemControlerPlugin/LoupedeckAtem
 
 ## 2026-10-22 – Import of manual changes
 
-Source: `/Users/tseiman/Downloads/Loupedeck_OpenHABPlugin`.
-Destination: `/Users/tseiman/Downloads/LoupedeckOpenHABPlugin-NG`.
+Source: the manually maintained `Loupedeck_OpenHABPlugin` directory.
+Destination: the `LoupedeckOpenHABPlugin-NG` checkout.
 The date records the import, not when the original changes were made.
 
 ### Imported changes

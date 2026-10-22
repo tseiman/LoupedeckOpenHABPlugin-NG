@@ -24,38 +24,38 @@ The LogiPluginService installation on the development Mac already provides a **.
 
 ### macOS: verified local build
 
-First, open a terminal and change to the repository directory:
+From the directory containing your checkout, change to the repository directory:
 
 ```bash
-cd /Users/tseiman/Downloads/LoupedeckOpenHABPlugin-NG
+cd LoupedeckOpenHABPlugin-NG
 ```
 
 Build with automatic package restoration:
 
 ```bash
-dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir=/Users/tseiman/Downloads/LoupedeckAtemControlerPlugin/bin/Debug/mac
+dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir="/path/to/compatible/SDK"
 ```
 
-Alternatively, use another compatible SDK installation:
+If a compatible API is available in an ATEM checkout next to this repository, its relative path can also be used:
 
 ```bash
-dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir="/path/to/compatible/SDK"
+dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir="../LoupedeckAtemControlerPlugin/bin/Debug/mac"
 ```
 
 `PluginApiDir` is the directory containing `PluginApi.dll`. The default is `/Applications/Utilities/LogiPluginService.app/Contents/MonoBundle/` on macOS and `C:/Program Files/Logi/LogiPluginService/` on Windows. If that installation contains a newer API, explicitly provide a compatible path. The plugin continues to target .NET 8, following the ATEM project.
 
-### Offline build using the existing cache
+### Offline build using a local package source
 
-On the development Mac, Newtonsoft.Json can be restored without network access from the existing NuGet package:
+Use a local NuGet feed containing the Newtonsoft.Json 13.0.3 package (`.nupkg`). Replace the example source directory with the location of your feed:
 
 ```bash
-dotnet restore OpenHABPlugin.sln --source /Users/tseiman/.nuget/packages/newtonsoft.json/13.0.3 --packages ./packages
+dotnet restore OpenHABPlugin.sln --source "/path/to/offline-nuget-feed" --packages ./packages
 ```
 
 Then build without restoring packages again:
 
 ```bash
-dotnet build OpenHABPlugin.sln --configuration Release --no-restore -p:PluginApiDir=/Users/tseiman/Downloads/LoupedeckAtemControlerPlugin/bin/Debug/mac
+dotnet build OpenHABPlugin.sln --configuration Release --no-restore -p:PluginApiDir="/path/to/compatible/SDK"
 ```
 
 ### Windows
@@ -129,10 +129,10 @@ The tests use a local OpenHAB test server on a randomly assigned loopback port. 
 dotnet run --project tests/OpenHAB.IntegrationTests.csproj
 ```
 
-For an offline run on the development Mac:
+For an offline run, use the same local package source as above:
 
 ```bash
-dotnet restore tests/OpenHAB.IntegrationTests.csproj --source /Users/tseiman/.nuget/packages/newtonsoft.json/13.0.3 --packages ./packages
+dotnet restore tests/OpenHAB.IntegrationTests.csproj --source "/path/to/offline-nuget-feed" --packages ./packages
 ```
 
 ```bash
@@ -141,10 +141,10 @@ dotnet run --project tests/OpenHAB.IntegrationTests.csproj --no-restore
 
 Coverage includes REST/WebSocket authentication, initial states, fragmented events, heartbeats, state changes and display notifications, protection against stale REST responses, UP/STOP/DOWN commands, HTTP failures, percentage values, reconnection, the legacy endpoint, REST fallback, and shutdown of background polling. These tests do not replace verification of actual rendering in the Loupedeck/Logi host.
 
-An optional live test retrieves SVGs only, without item queries or device commands on the specified server:
+An optional live test retrieves SVGs only, without item queries or device commands on the specified server. Replace the example hostname and port with your OpenHAB server address:
 
 ```bash
-OPENHAB_ICON_SERVER=https://openhab.tsei.mdn:8443 dotnet run --project tests/OpenHAB.IntegrationTests.csproj --no-restore -- --icons-only
+OPENHAB_ICON_SERVER=https://openhab.example.org:8443 dotnet run --project tests/OpenHAB.IntegrationTests.csproj --no-restore -- --icons-only
 ```
 
 On the development Mac, direct HTTPS requests through curl return valid SVGs, while the installed .NET 8 and .NET 9 runtimes fail with `AppleCrypto: bad certificate format`. Certificate validation remains enabled. The cause and behavior in the actual Logi host still require investigation; until then, only local fallback icons may be available there.
