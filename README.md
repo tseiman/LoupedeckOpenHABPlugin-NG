@@ -1,58 +1,58 @@
 # Loupedeck OpenHAB Plugin NG
 
-OpenHAB NG verbindet Loupedeck CT, Live, Live S und Razer Stream Controller mit OpenHAB. Die NG-Version verwendet .NET 8 und hat eine eigene Identität; sie kann neben dem ursprünglichen OpenHAB-Plugin eingerichtet werden.
+OpenHAB NG connects Loupedeck CT, Live, Live S, and Razer Stream Controller to OpenHAB. The NG version uses .NET 8 and has its own identity, allowing it to be configured alongside the original OpenHAB plugin.
 
-## Funktionen
+## Features
 
-- Initialer Abruf aller Items über REST, Live-Aktualisierung durch WebSocket-Events und automatischer Neuaufbau nach Verbindungsabbruch.
-- WebSocket-Endpunkte `/ws/events` und als Fallback `/ws` für ältere OpenHAB-Versionen; Heartbeat alle fünf Sekunden.
-- REST-Abgleich alle fünf Sekunden ohne WebSocket, sonst alle 30 Sekunden zur Korrektur verpasster Ereignisse.
-- Schalter mit zustandsabhängigen Symbolen; automatische Lampen-/Steckdosenauswahl anhand der OpenHAB-Icon-Kategorie sowie explizite Aktionen **Lamp ON/OFF** und **Socket ON/OFF**.
-- Dimmer mit Prozentanzeige, Drehgeber zur Einstellung von 0 bis 100 und Tastendruck zum Ein-/Ausschalten.
-- Rollladensteuerung mit drei vertikal untereinander platzierbaren Widgets **AUF**, **STOP**, **AB**. Jedes zeigt die gemeldete Position und sendet den jeweiligen Befehl an dasselbe ausgewählte `Rollershutter`-Item.
-- Live-Zustandsanzeige für beliebige Items und ein Widget für den WebSocket-Verbindungsstatus.
+- Initial REST retrieval of all items, live updates through WebSocket events, and automatic reconnection after connection loss.
+- WebSocket endpoints `/ws/events` and, as a fallback for older OpenHAB versions, `/ws`; a heartbeat is sent every five seconds.
+- REST reconciliation every five seconds without WebSocket connectivity, or every 30 seconds while connected, to recover missed events.
+- Switches with state-dependent icons; automatic lamp/socket selection based on the OpenHAB icon category, plus explicit **Lamp ON/OFF** and **Socket ON/OFF** actions.
+- Dimmers with percentage displays, rotary control from 0 to 100, and push-to-toggle operation.
+- Rollershutter control using three vertically arranged widgets: **UP**, **STOP**, and **DOWN**. Each displays the reported position and sends its command to the same selected `Rollershutter` item. The current action labels are **Rollladen AUF**, **Rollladen STOP**, and **Rollladen AB**.
+- Live state displays for any item and a WebSocket connection status widget.
 
-## Build-Anleitung
+## Build instructions
 
-### Voraussetzungen
+### Prerequisites
 
-1. Ein .NET SDK ab Version 8 mit den .NET-8-Zielpaketen; für die Integrationstests zusätzlich die .NET-8-/ASP.NET-Core-8-Laufzeit. Vorhandene SDKs mit `dotnet --list-sdks` und Laufzeiten mit `dotnet --list-runtimes` prüfen.
-2. Eine **zu .NET 8 kompatible `PluginApi.dll`** aus dem Loupedeck-/Logi-SDK bzw. einer entsprechenden Host-Installation.
-3. Zugriff auf NuGet für Newtonsoft.Json 13.0.3 oder ein lokaler Paketcache.
+1. .NET SDK 8 or later with the .NET 8 targeting packs. Integration tests also require the .NET 8 and ASP.NET Core 8 runtimes. Check installed SDKs with `dotnet --list-sdks` and runtimes with `dotnet --list-runtimes`.
+2. A **.NET 8-compatible `PluginApi.dll`** from the Loupedeck/Logi SDK or a corresponding host installation.
+3. NuGet access for Newtonsoft.Json 13.0.3, or an existing local package cache.
 
-Das installierte LogiPluginService auf dem hier verwendeten Mac liefert bereits eine **.NET-10-API**. Diese DLL ist keine passende Referenz für das `net8.0`-Projekt. Als geprüfte .NET-8-Referenz dient lokal die API aus dem vorhandenen ATEM-Build. Das ATEM-Repository wird dadurch nicht verändert und ist keine fest eingebaute Projektabhängigkeit.
+The LogiPluginService installation on the development Mac already provides a **.NET 10 API**. That DLL is not a suitable reference for this `net8.0` project. The API from the existing local ATEM build is the verified .NET 8 reference. This does not modify the ATEM repository or make it a hard-coded project dependency.
 
-### macOS: geprüfter lokaler Build
+### macOS: verified local build
 
-Im Terminal zunächst in das Repository wechseln:
+First, open a terminal and change to the repository directory:
 
 ```bash
 cd /Users/tseiman/Downloads/LoupedeckOpenHABPlugin-NG
 ```
 
-Mit normaler Paketwiederherstellung bauen:
+Build with automatic package restoration:
 
 ```bash
 dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir=/Users/tseiman/Downloads/LoupedeckAtemControlerPlugin/bin/Debug/mac
 ```
 
-Alternativ eine andere kompatible SDK-Installation verwenden:
+Alternatively, use another compatible SDK installation:
 
 ```bash
-dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir="/Pfad/zum/kompatiblen/SDK"
+dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir="/path/to/compatible/SDK"
 ```
 
-`PluginApiDir` bezeichnet das Verzeichnis, das `PluginApi.dll` enthält. Standardmäßig wird unter macOS `/Applications/Utilities/LogiPluginService.app/Contents/MonoBundle/` und unter Windows `C:/Program Files/Logi/LogiPluginService/` gesucht. Bei einer dort installierten neueren API muss der passende Pfad explizit angegeben werden. Das Pluginziel bleibt .NET 8 entsprechend der ATEM-Vorlage.
+`PluginApiDir` is the directory containing `PluginApi.dll`. The default is `/Applications/Utilities/LogiPluginService.app/Contents/MonoBundle/` on macOS and `C:/Program Files/Logi/LogiPluginService/` on Windows. If that installation contains a newer API, explicitly provide a compatible path. The plugin continues to target .NET 8, following the ATEM project.
 
-### Offline-Build mit dem vorhandenen Cache
+### Offline build using the existing cache
 
-Auf diesem Mac kann Newtonsoft.Json ohne Netzwerk aus dem bereits vorhandenen NuGet-Paket wiederhergestellt werden:
+On the development Mac, Newtonsoft.Json can be restored without network access from the existing NuGet package:
 
 ```bash
 dotnet restore OpenHABPlugin.sln --source /Users/tseiman/.nuget/packages/newtonsoft.json/13.0.3 --packages ./packages
 ```
 
-Anschließend ohne erneute Wiederherstellung bauen:
+Then build without restoring packages again:
 
 ```bash
 dotnet build OpenHABPlugin.sln --configuration Release --no-restore -p:PluginApiDir=/Users/tseiman/Downloads/LoupedeckAtemControlerPlugin/bin/Debug/mac
@@ -60,19 +60,19 @@ dotnet build OpenHABPlugin.sln --configuration Release --no-restore -p:PluginApi
 
 ### Windows
 
-Im Repository-Verzeichnis und mit einem kompatiblen SDK-Pfad:
+Run this command from the repository directory with a compatible SDK path:
 
 ```powershell
-dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir="C:/Pfad/zum/kompatiblen/SDK"
+dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir="C:/path/to/compatible/SDK"
 ```
 
-### Ergebnis und Installation
+### Output and installation
 
-Der Build erstellt folgende Struktur:
+The build creates this directory structure:
 
 ```text
 bin/Release/
-  mac/                         # auf Windows: win/
+  mac/                         # win/ on Windows
     OpenHABPluginNG.dll
     OpenHABPluginNG.deps.json
     Newtonsoft.Json.dll
@@ -81,18 +81,18 @@ bin/Release/
     Icon*.png
 ```
 
-Die Host-API wird nicht mit ausgeliefert. Debug-Ausgaben liegen entsprechend unter `bin/Debug/`. Der Build installiert das Plugin nicht automatisch und startet keinen Host neu. Das Paket muss unter dem neuen Namen **OpenHABNG** geladen werden; bei einer lokalen Entwicklungsinstallation muss der Plugin-Link auf das Verzeichnis zeigen, das `mac` bzw. `win` und `metadata` enthält, also beispielsweise `bin/Release`.
+The host API is not bundled. Debug output is placed under `bin/Debug/`. Building does not automatically install the plugin or restart the host. Load the package under its new name, **OpenHABNG**. For a local development installation, the plugin link must point to the directory containing `mac` or `win` and `metadata`, for example `bin/Release`.
 
-Die Kompilierung gegen die ATEM-API ist lokal geprüft. Das Laden im aktuell installierten .NET-10-Host und die Anzeige auf echter Hardware müssen separat geprüft werden; ein erfolgreicher Build allein belegt diese Kompatibilität nicht. Der Build entfernt alte `OpenHABPlugin.dll`-Ausgaben im lokalen Zielordner; sie gehören nicht in ein NG-Paket.
+Compilation against the ATEM API has been verified locally. Loading in the currently installed .NET 10 host and rendering on actual hardware still require separate testing; a successful build does not establish that compatibility. The build removes legacy `OpenHABPlugin.dll` output from its local target directory; those files must not be included in an NG package.
 
-## OpenHAB einrichten
+## Configuring OpenHAB
 
-1. Im Host das Plugin **OpenHAB NG** auswählen.
-2. Die Aktion **Set OpenHAB URL** auf eine Taste ziehen, die Server-URL eintragen (etwa `http://openhab.local:8080`) und einmal ausführen. Basis-Pfade hinter einem Reverse Proxy werden unterstützt.
-3. Falls erforderlich, **Set OpenHAB API token** ausführen. Der Token wird für REST und WebSocket verwendet. Er steht als Profilparameter und im lokalen `config.json`; die Konfiguration entsprechend behandeln. Alternativ den Token mit `mcedit` direkt im NG-Konfigurationsverzeichnis bearbeiten, ohne ihn als Tastenparameter zu hinterlegen.
-4. Nach dem ersten Item-Abruf die gewünschten Aktionen auswählen. Falls ein bereits geöffnetes Auswahlmenü noch leer ist, dieses erneut öffnen.
+1. Select **OpenHAB NG** in the host application.
+2. Assign **Set OpenHAB URL** to a key, enter the server URL, such as `http://openhab.local:8080`, and run it once. Base paths behind reverse proxies are supported.
+3. If required, run **Set OpenHAB API token**. The token is used for REST and WebSocket authentication. It is stored as a profile parameter and in the local `config.json`; handle that configuration accordingly. Alternatively, use `mcedit` to edit the token directly in the NG configuration directory without placing it in a key parameter.
+4. Select the desired actions after the initial item retrieval. If an already-open selection menu is still empty, close and reopen it.
 
-Die NG-Konfiguration verwendet den vom Host für **OpenHABNG** bereitgestellten Datenordner. Das alte Plugin und seine Konfiguration werden nicht automatisch migriert. Eine eigene `config.json` enthält beispielsweise:
+NG uses the data directory provided by the host for **OpenHABNG**. The old plugin and its configuration are not migrated automatically. A separate `config.json` can contain:
 
 ```json
 {
@@ -101,35 +101,35 @@ Die NG-Konfiguration verwendet den vom Host für **OpenHABNG** bereitgestellten 
 }
 ```
 
-Beim Ändern der URL bleibt der Token erhalten; beim erneuten Konfigurieren wird die bisherige Verbindung beendet. Tokens werden nicht in Diagnoseausgaben geschrieben.
+Changing the URL preserves the token. Reconfiguration ends the previous connection. Tokens are not written to diagnostic output.
 
-## Aktionen und Anzeigen
+## Actions and displays
 
-**Switch (automatic icon)** verwendet die Item-Kategorie: `light`, `lamp` und `bulb` ergeben das Lampensymbol; Kategorien mit `socket` oder `outlet` das Steckdosensymbol. Andere Kategorien erhalten einen allgemeinen Schalter. Mit **Lamp ON/OFF** bzw. **Socket ON/OFF** lässt sich das Symbol unabhängig von der Kategorie festlegen. Die Symbole werden bevorzugt direkt von OpenHAB über `/icon/<Kategorie>?format=svg&anyFormat=true&state=<Zustand>&iconset=classic` geladen und behalten die dort definierten Farben. Für Licht entspricht OFF dem Wert 0 und ON dem Wert 100; Dimmer verwenden ihren tatsächlichen Prozentwert, Steckdosen ON/OFF. Bei fehlender Kategorie, unbekanntem Zustand oder Abrufproblemen dienen die lokalen gelben/grauen Symbole als Ersatz. Unbekannte Werte werden als `—` angezeigt. Der gemeldete Serverzustand ist maßgeblich, ein Tastendruck täuscht keinen bestätigten Zustand vor.
+**Switch (automatic icon)** uses the item category: `light`, `lamp`, and `bulb` select the lamp symbol; categories containing `socket` or `outlet` select the socket symbol. Other categories use a generic switch. **Lamp ON/OFF** and **Socket ON/OFF** override that choice independently of the item category. Icons are preferably retrieved directly from OpenHAB through `/icon/<category>?format=svg&anyFormat=true&state=<state>&iconset=classic`, retaining the server-defined colors. For lights, OFF maps to 0 and ON to 100; dimmers use their actual percentage, while sockets use ON/OFF. Local yellow/gray icons serve as fallbacks when the category is missing, the state is unknown, or retrieval fails. Unknown values display as `—`. The reported server state is authoritative; pressing a key does not simulate a confirmed device state. Existing switch captions remain `AN`/`AUS` (ON/OFF).
 
-**Dimmer (%)** zeigt Zahlen als Prozent, `ON` als `100 %`, `OFF` als `0 %` und `NULL`/`UNDEF` als `—`. Auch das OpenHAB-Icon folgt dem Prozentwert, beispielsweise mit `state=36`. Drehbewegungen sind auf 0 bis 100 begrenzt. Schnelle Drehbewegungen werden auch bei verzögerter Rückmeldung aufaddiert.
+**Dimmer (%)** displays numeric values as percentages, `ON` as `100 %`, `OFF` as `0 %`, and `NULL`/`UNDEF` as `—`. The OpenHAB icon also follows the percentage, for example `state=36`. Rotary adjustments are limited to 0–100. Rapid turns accumulate even when device feedback is delayed.
 
-Für den **Rollladen** drei Tasten vertikal untereinander mit **Rollladen AUF**, **Rollladen STOP**, **Rollladen AB** belegen und jeweils dasselbe Item wählen. Das ist eine Gruppe aus drei frei platzierbaren Widgets; es wird kein fertiges dreifeldriges Layout automatisch im Profil angelegt. Die drei Symbole sind lokal eingebettete originale Framework7-SVGs: AUF verwendet `arrowtriangle_up` in Grau, STOP das rote `stop`-Quadrat, AB `arrowtriangle_down` in Grau, entsprechend der Web-UI-Vorlage. Dafür ist weder ein Webabruf noch eine installierte F7-Schrift erforderlich. Die vertikale Anordnung nimmt der Benutzer im Profil vor. Bei OpenHAB entspricht 0 % vollständig geöffnet und 100 % vollständig geschlossen.
+For **rollershutters**, arrange three keys vertically: **Rollladen AUF** (UP), **Rollladen STOP** (STOP), and **Rollladen AB** (DOWN), selecting the same item on each key. These are three independently placeable widgets; no predefined three-cell profile layout is created automatically. The symbols are embedded original Framework7 SVGs: UP uses the gray `arrowtriangle_up`, STOP the red `stop` square, and DOWN the gray `arrowtriangle_down`, matching the web UI reference. No network request or installed F7 font is required. Users arrange the keys vertically in their profiles. In OpenHAB, 0 % means fully open and 100 % fully closed.
 
-**Live state** zeigt den aktuellen Item-Wert. OpenHAB-spezifische Java-/printf-Formatierungen werden nicht als C#-Formatstrings ausgeführt; Einheiten bleiben im Rohwert erhalten.
+**Live state** displays the current item value. OpenHAB-specific Java/printf patterns are not evaluated as C# format strings; units remain part of the raw value.
 
-**Connection status** zeigt `LIVE`, wenn die WebSocket-Verbindung steht, andernfalls `REST / OFFLINE`. Die Statusanzeige allein bestätigt keine Erreichbarkeit der einzelnen Geräte. Verbindungs- und HTTP-Probleme erscheinen im Host-Log mit Präfix `[OpenHAB NG]`.
+**Connection status** displays `LIVE` when the WebSocket connection is established, otherwise `REST / OFFLINE`. This status alone does not confirm that individual devices are reachable. Connection and HTTP problems appear in the host log with the `[OpenHAB NG]` prefix.
 
-## Icon-Abruf und Cache
+## Icon retrieval and caching
 
-Die Tastenanzeige wartet nicht auf Netzwerkanfragen: SVGs werden im Hintergrund geladen und lösen nach dem Eintreffen eine erneute Anzeige aus. Gleiche Kategorie/Zustand-Kombinationen teilen einen Abruf. Der Speicher-Cache umfasst höchstens 128 Varianten, verwendet höchstens vier parallele Downloads und erneuert erfolgreiche Einträge bei Bedarf nach fünf Minuten. Fehlgeschlagene Abrufe werden frühestens nach 30 Sekunden erneut versucht. Cache und Downloads werden beim URL-Wechsel bzw. Entladen beendet. Der konfigurierte API-Token wird auch für die Icons verwendet.
+Key rendering does not wait for network requests. SVGs are loaded in the background and trigger a redraw when available. Identical category/state combinations share a request. The in-memory cache holds up to 128 variants, allows at most four concurrent downloads, and refreshes successful entries on demand after five minutes. Failed requests are retried no sooner than 30 seconds later. Cache activity and downloads stop when the URL changes or the plugin unloads. The configured API token is also used for icon requests.
 
-Der Abruf verwendet den konfigurierten OpenHAB-Server, keinen im Code fest eingebauten privaten Hostnamen.
+Requests use the configured OpenHAB server; no private hostname is hard-coded in the implementation.
 
-## Integrationstests
+## Integration tests
 
-Die Tests verwenden einen lokalen OpenHAB-Testserver auf einem zufälligen Loopback-Port. Sie schalten keine realen Geräte und benötigen keine PluginApi.dll. Aus dem Repository-Verzeichnis:
+The tests use a local OpenHAB test server on a randomly assigned loopback port. They do not operate real devices and do not require `PluginApi.dll`. Run from the repository directory:
 
 ```bash
 dotnet run --project tests/OpenHAB.IntegrationTests.csproj
 ```
 
-Offline auf diesem Mac:
+For an offline run on the development Mac:
 
 ```bash
 dotnet restore tests/OpenHAB.IntegrationTests.csproj --source /Users/tseiman/.nuget/packages/newtonsoft.json/13.0.3 --packages ./packages
@@ -139,22 +139,22 @@ dotnet restore tests/OpenHAB.IntegrationTests.csproj --source /Users/tseiman/.nu
 dotnet run --project tests/OpenHAB.IntegrationTests.csproj --no-restore
 ```
 
-Geprüft werden REST-/WebSocket-Authentifizierung, initiale Zustände, fragmentierte Events, Heartbeats, Zustandsänderungen und Anzeige-Benachrichtigungen, Schutz vor veralteten REST-Antworten, AUF/STOP/AB-Befehle, HTTP-Fehler, Prozentwerte, Wiederverbindung, Legacy-Endpunkt, REST-Fallback und das Beenden der Hintergrundabfragen. Die Tests ersetzen keine Prüfung der tatsächlichen Darstellung im Loupedeck-/Logi-Host.
+Coverage includes REST/WebSocket authentication, initial states, fragmented events, heartbeats, state changes and display notifications, protection against stale REST responses, UP/STOP/DOWN commands, HTTP failures, percentage values, reconnection, the legacy endpoint, REST fallback, and shutdown of background polling. These tests do not replace verification of actual rendering in the Loupedeck/Logi host.
 
-## Identität, Herkunft und Lizenz
-
-Plugin-ID: `OpenHABNG`, Anzeigename: `OpenHAB NG`, Assembly: `OpenHABPluginNG.dll`, Namespace: `Loupedeck.OpenHABPluginNG`.
-
-Diese Weiterentwicklung basiert auf [Loupedeck_OpenHABPlugin von Arno Pernozzoli](https://github.com/pernozzoli/Loupedeck_OpenHABPlugin). Die ursprünglichen Lizenz- und Copyright-Angaben bleiben erhalten. Änderungen und Prüfergebnisse stehen in [ChangeLog.md](ChangeLog.md). Lizenz: MIT, siehe [LICENSE](LICENSE).
-
-Protokollreferenzen: [OpenHAB WebSocket API](https://www.openhab.org/docs/configuration/websocket.html), [OpenHAB 5.0 WebSocket API](https://v50.openhab.org/docs/configuration/websocket.html), [Item-Typen](https://www.openhab.org/docs/configuration/items.html).
-
-Optionaler Live-Test nur für SVG-Abrufe, ohne Item-Abfragen oder Gerätebefehle auf dem angegebenen Server:
+An optional live test retrieves SVGs only, without item queries or device commands on the specified server:
 
 ```bash
 OPENHAB_ICON_SERVER=https://openhab.tsei.mdn:8443 dotnet run --project tests/OpenHAB.IntegrationTests.csproj --no-restore -- --icons-only
 ```
 
-Auf diesem Mac liefert der direkte HTTPS-Abruf über curl gültige SVGs, während die installierten .NET-8- und .NET-9-Laufzeiten am Server mit `AppleCrypto: bad certificate format` scheitern. Die Zertifikatsprüfung bleibt aktiviert. Die Ursache und das Verhalten im tatsächlichen Logi-Host müssen noch geprüft werden; bis dahin stehen dort gegebenenfalls nur die lokalen Ersatzsymbole zur Verfügung.
+On the development Mac, direct HTTPS requests through curl return valid SVGs, while the installed .NET 8 and .NET 9 runtimes fail with `AppleCrypto: bad certificate format`. Certificate validation remains enabled. The cause and behavior in the actual Logi host still require investigation; until then, only local fallback icons may be available there.
 
-Die F7-Symbole stammen aus [Framework7 Icons](https://github.com/framework7io/framework7-icons). Die MIT-Lizenz und Herkunftsnachweise unter `licenses/` werden in die Build-Ausgabe übernommen.
+## Identity, origin, and licensing
+
+Plugin ID: `OpenHABNG`; display name: `OpenHAB NG`; assembly: `OpenHABPluginNG.dll`; namespace: `Loupedeck.OpenHABPluginNG`.
+
+This project is based on [Loupedeck_OpenHABPlugin by Arno Pernozzoli](https://github.com/pernozzoli/Loupedeck_OpenHABPlugin). Original license and copyright notices are retained. Changes and validation results are documented in [ChangeLog.md](ChangeLog.md). License: MIT; see [LICENSE](LICENSE).
+
+The F7 symbols come from [Framework7 Icons](https://github.com/framework7io/framework7-icons). The MIT license and attribution files under `licenses/` are copied to the build output.
+
+Protocol references: [OpenHAB WebSocket API](https://www.openhab.org/docs/configuration/websocket.html), [OpenHAB 5.0 WebSocket API](https://v50.openhab.org/docs/configuration/websocket.html), and [item types](https://www.openhab.org/docs/configuration/items.html).
