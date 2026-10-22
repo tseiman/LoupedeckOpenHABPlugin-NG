@@ -1,5 +1,11 @@
 # ChangeLog
 
+## 2026-10-23 – Standalone OpenHAB build instructions
+
+- Removed the unrelated plugin checkout example from the README. Building OpenHAB NG requires only its own sources, the .NET SDK, restored NuGet packages, and a compatible Loupedeck/Logi `PluginApi.dll`.
+- Clarified that the dependency is the host SDK, not another plugin. Historical comparisons with the modernization reference remain recorded below; they are not build requirements.
+- Replaced wording that incorrectly called the shared Loupedeck/Logi host library an API belonging to another plugin.
+
 ## 2026-10-23 – Portable documentation examples
 
 - Removed developer-specific absolute paths and the private OpenHAB hostname from all project documentation, including historical changelog entries.
@@ -87,7 +93,7 @@
 - Release build against the .NET 8 API in the existing ATEM build output (`bin/Debug/mac`) succeeded without compiler errors. Full compilation reported four existing nullability warnings (CS8622 and CS8604); an unchanged incremental build also succeeded.
 - Output at this stage: `bin/Release/mac/OpenHABPlugin.dll`, Newtonsoft.Json, the dependency manifest, and copied metadata.
 - Build command from the repository: `dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir="/path/to/compatible/SDK"`. The offline check first restored packages using `dotnet restore OpenHABPlugin.sln --source "/path/to/offline-nuget-feed" --packages ./packages`, then built with `--no-restore`.
-- The installed Logi host already provides a .NET 10 API, which was not used for the .NET 8 build. Successful compilation against the ATEM API does not replace host loading or OpenHAB functionality tests; those remain outstanding.
+- The installed Logi host already provides a .NET 10 API, which was not used for the .NET 8 build. Successful compilation against the host API copied in that build does not replace host loading or OpenHAB functionality tests; those remain outstanding.
 
 ## 2026-10-22 – Discarded intermediate step: .NET Framework 4.8 build configuration
 

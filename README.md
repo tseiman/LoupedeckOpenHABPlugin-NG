@@ -20,7 +20,7 @@ OpenHAB NG connects Loupedeck CT, Live, Live S, and Razer Stream Controller to O
 2. A **.NET 8-compatible `PluginApi.dll`** from the Loupedeck/Logi SDK or a corresponding host installation.
 3. NuGet access for Newtonsoft.Json 13.0.3, or an existing local package cache.
 
-The LogiPluginService installation on the development Mac already provides a **.NET 10 API**. That DLL is not a suitable reference for this `net8.0` project. The API from the existing local ATEM build is the verified .NET 8 reference. This does not modify the ATEM repository or make it a hard-coded project dependency.
+Use a `PluginApi.dll` compatible with the project target, **.NET 8**. A host installation may provide an API targeting a newer framework, such as .NET 10; that DLL is not a suitable build reference for this `net8.0` project. Provide the directory of a compatible Loupedeck/Logi SDK explicitly when necessary.
 
 ### macOS: verified local build
 
@@ -36,13 +36,7 @@ Build with automatic package restoration:
 dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir="/path/to/compatible/SDK"
 ```
 
-If a compatible API is available in an ATEM checkout next to this repository, its relative path can also be used:
-
-```bash
-dotnet build OpenHABPlugin.sln --configuration Release -p:PluginApiDir="../LoupedeckAtemControlerPlugin/bin/Debug/mac"
-```
-
-`PluginApiDir` is the directory containing `PluginApi.dll`. The default is `/Applications/Utilities/LogiPluginService.app/Contents/MonoBundle/` on macOS and `C:/Program Files/Logi/LogiPluginService/` on Windows. If that installation contains a newer API, explicitly provide a compatible path. The plugin continues to target .NET 8, following the ATEM project.
+`PluginApiDir` is the directory containing `PluginApi.dll`. The default is `/Applications/Utilities/LogiPluginService.app/Contents/MonoBundle/` on macOS and `C:/Program Files/Logi/LogiPluginService/` on Windows. If that installation contains a newer API, explicitly provide a compatible path. The plugin targets .NET 8. No other plugin project is required to build it.
 
 ### Offline build using a local package source
 
@@ -83,7 +77,7 @@ bin/Release/
 
 The host API is not bundled. Debug output is placed under `bin/Debug/`. Building does not automatically install the plugin or restart the host. Load the package under its new name, **OpenHABNG**. For a local development installation, the plugin link must point to the directory containing `mac` or `win` and `metadata`, for example `bin/Release`.
 
-Compilation against the ATEM API has been verified locally. Loading in the currently installed .NET 10 host and rendering on actual hardware still require separate testing; a successful build does not establish that compatibility. The build removes legacy `OpenHABPlugin.dll` output from its local target directory; those files must not be included in an NG package.
+Compilation against a .NET 8-compatible Loupedeck/Logi API has been verified locally. Loading in a newer host runtime and rendering on actual hardware still require separate testing; a successful build does not establish that compatibility. The build removes legacy `OpenHABPlugin.dll` output from its local target directory; those files must not be included in an NG package.
 
 ## Configuring OpenHAB
 
