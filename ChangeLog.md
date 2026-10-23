@@ -1,5 +1,12 @@
 # ChangeLog
 
+## 2026-10-23 – Consistent icon geometry and compact dimmer displays
+
+- Replaced variable one/two-line caption heights with a fixed caption row. Long captions are shortened without changing the icon's size or position for a given image size.
+- Added a dedicated dimmer layout shared by rotary dimmers and dimmer ON/OFF buttons: abbreviated heading at the top, centered icon, and bottom-centered percentage. Headings retain the last four Unicode text elements, e.g. `Dimmer, West` becomes `…West`.
+- Omitted dimmer headings on displays shorter than 50 pixels or narrower than 32 pixels. Percentage spacing and font size adapt to narrow displays. Removed the side-by-side dimmer layout that crowded the dial strips.
+- Validation: Release build and real host SDK tests passed, including equal icon geometry for short/long captions, suffix abbreviation, and dimmer images at 90×90, 60×60, 160×40, 48×48, 40×80, 60×30, and 20×50 pixels. The host template, state-dependent colors, item selections, and dimmer commands remain covered.
+
 ## 2026-10-23 – Full-key icon layout and numeric brightness controls
 
 - Added an image-only `metadata/DefaultIconTemplate.ict` with a 100% image area and no host caption. The template prevents Action Editor profile images from being reduced to make room for an additional user-entered action name. Existing `IsWidget` flags remain enabled.

@@ -19,8 +19,8 @@ namespace Loupedeck.OpenHABPluginNG.Actions
             var name = ItemName(parameters);
             var item = Service.GetItem(name);
             var active = OpenHABService.DimmerToggleCommand(item?.State) == "0";
-            return ItemPresentation.Render(width, height, item?.Label ?? "Select dimmer", OpenHABService.FormatPercent(item?.State),
-                "lamp", active, Service.GetCachedIconSvg(name, string.IsNullOrWhiteSpace(item?.Category) ? "light" : item.Category));
+            return ItemPresentation.RenderDimmer(width, height, item?.Label ?? "", OpenHABService.FormatPercent(item?.State),
+                active, Service.GetCachedIconSvg(name, string.IsNullOrWhiteSpace(item?.Category) ? "light" : item.Category));
         }
     }
 }

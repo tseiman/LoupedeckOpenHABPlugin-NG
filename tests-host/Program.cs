@@ -70,7 +70,7 @@ async Task Run()
     var ungrouped = (ActionEditorListboxItemsRequestedEventArgs)Call(shutter.ActionEditor, "InvokeListboxItemsRequestedEvent", ungroupedState, "Item");
     Check(ungrouped.Items.Select(i => i.Name).SequenceEqual(new[] { "Blind" }), "ungrouped shutters remain selectable");
     var dimmer = actions.OfType<DimmerItem>().Single();
-    Check((string)Call(dimmer, "GetAdjustmentDisplayName", Parameters("Dimmer")) == "Kitchen light", "dial caption resolves the configured item, not a profile ID");
+    Check((string)Call(dimmer, "GetAdjustmentDisplayName", Parameters("Dimmer")) == "Dimmer, West", "dial caption resolves the configured item, not a profile ID");
     Check((string)Call(dimmer, "GetCommandDisplayName", Parameters("missing")) == "Select dimmer", "unknown item never leaks an internal identifier");
     var lamp = actions.OfType<LampItem>().Single();
     using var lampOn = (BitmapImage)Call(lamp, "GetCommandImage", Parameters("Lamp"), 90, 90);
@@ -110,13 +110,22 @@ async Task Run()
     Connection(false, "REST");
     var output = Path.Combine(AppContext.BaseDirectory, "previews");
     Directory.CreateDirectory(output);
-    foreach (var size in new[] { (90, 90), (60, 60), (160, 40) })
+    foreach (var size in new[] { (90, 90), (60, 60), (160, 40), (48, 48), (40, 80), (60, 30), (20, 50) })
     {
         using var image = (BitmapImage)Call(dimmer, "GetAdjustmentImage", Parameters("Dimmer"), size.Item1, size.Item2);
         Check(image.Width == size.Item1 && image.Height == size.Item2, $"SDK dimmer image uses {size.Item1}x{size.Item2}");
         image.SaveToFile(Path.Combine(output, $"dimmer-{size.Item1}x{size.Item2}.png"));
     }
     BitmapImage Render(string value, string symbol, bool active, string svg = null) => (BitmapImage)render.Invoke(null, new object[] { 90, 90, "Kitchen light", value, symbol, active, svg })!;
+    var abbreviate = render.DeclaringType!.GetMethod("AbbreviateDimmerLabel", BindingFlags.Static | BindingFlags.NonPublic)!;
+    Check((string)abbreviate.Invoke(null, new object[] { "Dimmer, West" })! == "…West" &&
+        (string)abbreviate.Invoke(null, new object[] { "Ost" })! == "Ost", "dimmer heading retains at most the final four text elements");
+    var solidIcon = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' fill='#00ff00'/></svg>";
+    using var shortCaption = (BitmapImage)render.Invoke(null, new object[] { 90, 90, "Ost", "0 %", "arrowtriangle_up", false, solidIcon })!;
+    using var longCaption = (BitmapImage)render.Invoke(null, new object[] { 90, 90, "Rolladen mit einem sehr langen Raumnamen", "0 %", "arrowtriangle_up", false, solidIcon })!;
+    Check(Pixels(shortCaption).Select((c, i) => (c, i)).Where(p => p.c == 0xff00ff00u).Select(p => p.i)
+        .SequenceEqual(Pixels(longCaption).Select((c, i) => (c, i)).Where(p => p.c == 0xff00ff00u).Select(p => p.i)),
+        "caption length does not change icon size or position");
     using var off = Render("0 %", "lamp", false);
     using var on = Render("36 %", "lamp", true);
     using var again = Render("36 %", "lamp", true);
@@ -179,7 +188,7 @@ sealed class TestApi : HttpMessageHandler
         var items = new JArray(new[] { ("Lamp", "Switch", LampState), ("Socket", "Switch", "OFF"), ("Dimmer", "Dimmer", DimmerState), ("Blind", "Rollershutter", "50"), ("AllBlinds", "Group", "25"), ("Brightness", "Number", "36"), ("Humidity", "Number:Dimensionless", "65"), ("ReadOnlyBrightness", "Number", "20") }.Select(i => new JObject
         {
             ["name"] = i.Item1, ["type"] = i.Item2, ["groupType"] = i.Item1 == "AllBlinds" ? "Rollershutter" : null,
-            ["label"] = i.Item1 == "Dimmer" ? "Kitchen light" : i.Item1, ["state"] = i.Item3, ["groupNames"] = i.Item1 == "Blind" ? new JArray() : new JArray("Ground floor"),
+            ["label"] = i.Item1 == "Dimmer" ? "Dimmer, West" : i.Item1, ["state"] = i.Item3, ["groupNames"] = i.Item1 == "Blind" ? new JArray() : new JArray("Ground floor"),
             ["tags"] = i.Item1.Contains("Brightness") ? new JArray("Control", "Brightness") : new JArray("Measurement"),
             ["stateDescription"] = new JObject { ["readOnly"] = i.Item1 == "ReadOnlyBrightness" }
         }));

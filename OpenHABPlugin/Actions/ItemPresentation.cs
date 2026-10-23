@@ -10,7 +10,7 @@ namespace Loupedeck.OpenHABPluginNG.Actions
     {
         private static readonly ConcurrentDictionary<string, string> FixedIcons = new ConcurrentDictionary<string, string>();
         private static readonly object RenderLock = new object();
-        private static readonly Dictionary<(int, int, string, string, string, bool, string), byte[]> Rendered = new();
+        private static readonly Dictionary<(int, int, string, string, string, bool, string, bool), byte[]> Rendered = new();
 
         internal static BitmapImage RenderConnection(int width, int height, string status, OpenHABConnectionHealth health)
         {
@@ -23,14 +23,27 @@ namespace Loupedeck.OpenHABPluginNG.Actions
             => Render(size.GetWidth(), size.GetHeight(), label, value, symbol, active, serverSvg);
 
         public static BitmapImage Render(int width, int height, string label, string value, string symbol, bool active = false, string serverSvg = null)
+            => RenderCached(width, height, label, value, symbol, active, serverSvg, false);
+
+        internal static BitmapImage RenderDimmer(int width, int height, string label, string value, bool active, string serverSvg)
+            => RenderCached(width, height, AbbreviateDimmerLabel(label), value, "dimmer", active, serverSvg, true);
+
+        internal static string AbbreviateDimmerLabel(string label)
+        {
+            label = (label ?? "").Trim();
+            var elements = System.Globalization.StringInfo.ParseCombiningCharacters(label);
+            return elements.Length <= 4 ? label : "…" + label.Substring(elements[elements.Length - 4]).TrimStart(' ', ',', '_', '-');
+        }
+
+        private static BitmapImage RenderCached(int width, int height, string label, string value, string symbol, bool active, string serverSvg, bool dimmer)
         {
             var svgHash = serverSvg == null ? "" : Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(serverSvg)));
-            var key = (width, height, label, value, symbol, active, svgHash);
+            var key = (width, height, label, value, symbol, active, svgHash, dimmer);
             lock (RenderLock)
             {
                 if (!Rendered.TryGetValue(key, out var bytes))
                 {
-                    using var image = Draw(width, height, label, value, symbol, active, serverSvg);
+                    using var image = Draw(width, height, label, value, symbol, active, serverSvg, dimmer);
                     bytes = image.ToArray();
                     if (Rendered.Count >= 128) Rendered.Clear();
                     Rendered[key] = bytes;
@@ -40,23 +53,34 @@ namespace Loupedeck.OpenHABPluginNG.Actions
             }
         }
 
-        private static BitmapImage Draw(int width, int height, string label, string value, string symbol, bool active, string serverSvg)
+        private static BitmapImage Draw(int width, int height, string label, string value, string symbol, bool active, string serverSvg, bool dimmer)
         {
             using var bitmap = new BitmapBuilder(width, height);
             var foreground = active ? new BitmapColor(0xff, 0xd1, 0x55) : new BitmapColor(0xa8, 0xb2, 0xc3);
             bitmap.Clear(BitmapColor.Black);
             // Dial strips are short and wide: give their text room instead of clipping three rows.
-            var compact = height < 60 || width > height * 2;
-            var font = compact ? Math.Clamp(height / 3, 10, 16) : Math.Clamp(width / 7, 10, 18);
-            var captionLines = (label ?? "Select item").Length * font * 0.55 > width - 4 ? 2 : 1;
-            var textHeight = compact ? height / 2 : Math.Min(height / 3, captionLines * font + 4);
-            var valueFont = compact ? font : Math.Clamp(width / 6, 11, 18);
+            var compact = !dimmer && (height < 60 || width > height * 2);
+            var font = compact ? Math.Clamp(height / 3, 10, 16) : Math.Clamp(Math.Min(width, height) / 8, 7, 16);
+            if (dimmer) font = Math.Min(Math.Clamp(Math.Min(width, height) / 7, 8, 16), Math.Max(6, (int)((width - 4) / Math.Max(1, label.Length * 0.7))));
+            // One fixed caption row: item-name length must never change icon geometry.
+            var textHeight = dimmer && (height < 50 || width < 32) ? 0 : compact ? height / 2 : font + 4;
+            var valueFont = compact ? font : Math.Clamp(Math.Min(width, height) / 6, 8, 18);
+            if (dimmer) valueFont = Math.Clamp(Math.Min(width, height) / 5, 9, 16);
+            value = value ?? "—";
+            if (dimmer && value.Length * valueFont * 0.65 > width - 4) value = value.Replace(" ", "");
+            if (dimmer) valueFont = Math.Min(valueFont, Math.Max(6, (int)((width - 4) / Math.Max(1, value.Length * 0.7))));
             var valueHeight = Math.Min(height / 2, valueFont + 5);
-            var iconSize = compact ? Math.Max(12, Math.Min(height - 4, width / 3)) : Math.Max(12, Math.Min(width - 6, height - textHeight - valueHeight - 2));
+            var iconSize = compact ? Math.Max(1, Math.Min(height - 4, width / 3)) : Math.Max(1, Math.Min(width - 6, height - textHeight - valueHeight - 2));
             var textX = compact && !string.IsNullOrEmpty(symbol) ? iconSize + 6 : 2;
             var textWidth = Math.Max(1, width - textX - 2);
-            bitmap.DrawText(label ?? "Select item", textX, 1, textWidth, textHeight, BitmapColor.White, font);
-            var iconY = compact ? (height - iconSize) / 2 : textHeight + 1;
+            if (textHeight > 0)
+            {
+                var caption = label ?? "Select item";
+                var maxCharacters = Math.Max(1, (int)(textWidth / (font * 0.65)));
+                if (!dimmer && caption.Length > maxCharacters) caption = caption.Substring(0, Math.Max(0, maxCharacters - 1)) + "…";
+                bitmap.DrawText(caption, textX, 1, textWidth, textHeight, BitmapColor.White, font);
+            }
+            var iconY = compact ? (height - iconSize) / 2 : textHeight + Math.Max(0, (height - textHeight - valueHeight - iconSize) / 2);
             if (!string.IsNullOrEmpty(symbol))
             {
                 try
