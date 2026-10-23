@@ -1,5 +1,11 @@
 # ChangeLog
 
+## 2026-10-23 – Heading-free dimmer images
+
+- Removed dimmer headings entirely on keys and dial displays, including the dimmer ON/OFF action. Freed the caption area for the centered icon, reduced side padding, and increased the percentage font size while retaining width-aware fitting.
+- Percentages are displayed compactly, e.g. `36%`, centered at the bottom. Configuration UI item names remain unchanged.
+- Validation: Release build and real host SDK tests passed. Regression coverage verifies that different dimmer item names produce identical heading-free images; rendering previews cover small and large display sizes.
+
 ## 2026-10-23 – Consistent icon geometry and compact dimmer displays
 
 - Replaced variable one/two-line caption heights with a fixed caption row. Long captions are shortened without changing the icon's size or position for a given image size.

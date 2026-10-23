@@ -117,9 +117,10 @@ async Task Run()
         image.SaveToFile(Path.Combine(output, $"dimmer-{size.Item1}x{size.Item2}.png"));
     }
     BitmapImage Render(string value, string symbol, bool active, string svg = null) => (BitmapImage)render.Invoke(null, new object[] { 90, 90, "Kitchen light", value, symbol, active, svg })!;
-    var abbreviate = render.DeclaringType!.GetMethod("AbbreviateDimmerLabel", BindingFlags.Static | BindingFlags.NonPublic)!;
-    Check((string)abbreviate.Invoke(null, new object[] { "Dimmer, West" })! == "…West" &&
-        (string)abbreviate.Invoke(null, new object[] { "Ost" })! == "Ost", "dimmer heading retains at most the final four text elements");
+    var dimmerRender = render.DeclaringType!.GetMethod("RenderDimmer", BindingFlags.Static | BindingFlags.NonPublic)!;
+    using var westDimmer = (BitmapImage)dimmerRender.Invoke(null, new object[] { 40, 80, "Dimmer, West", "36 %", true, null! })!;
+    using var eastDimmer = (BitmapImage)dimmerRender.Invoke(null, new object[] { 40, 80, "Dimmer, Ost", "36 %", true, null! })!;
+    Check(Pixels(westDimmer).SequenceEqual(Pixels(eastDimmer)) && !HasColor(westDimmer, 255, 255, 255), "dimmer images contain no heading for any item name");
     var solidIcon = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' fill='#00ff00'/></svg>";
     using var shortCaption = (BitmapImage)render.Invoke(null, new object[] { 90, 90, "Ost", "0 %", "arrowtriangle_up", false, solidIcon })!;
     using var longCaption = (BitmapImage)render.Invoke(null, new object[] { 90, 90, "Rolladen mit einem sehr langen Raumnamen", "0 %", "arrowtriangle_up", false, solidIcon })!;

@@ -26,14 +26,7 @@ namespace Loupedeck.OpenHABPluginNG.Actions
             => RenderCached(width, height, label, value, symbol, active, serverSvg, false);
 
         internal static BitmapImage RenderDimmer(int width, int height, string label, string value, bool active, string serverSvg)
-            => RenderCached(width, height, AbbreviateDimmerLabel(label), value, "dimmer", active, serverSvg, true);
-
-        internal static string AbbreviateDimmerLabel(string label)
-        {
-            label = (label ?? "").Trim();
-            var elements = System.Globalization.StringInfo.ParseCombiningCharacters(label);
-            return elements.Length <= 4 ? label : "…" + label.Substring(elements[elements.Length - 4]).TrimStart(' ', ',', '_', '-');
-        }
+            => RenderCached(width, height, "", value, "dimmer", active, serverSvg, true);
 
         private static BitmapImage RenderCached(int width, int height, string label, string value, string symbol, bool active, string serverSvg, bool dimmer)
         {
@@ -61,16 +54,15 @@ namespace Loupedeck.OpenHABPluginNG.Actions
             // Dial strips are short and wide: give their text room instead of clipping three rows.
             var compact = !dimmer && (height < 60 || width > height * 2);
             var font = compact ? Math.Clamp(height / 3, 10, 16) : Math.Clamp(Math.Min(width, height) / 8, 7, 16);
-            if (dimmer) font = Math.Min(Math.Clamp(Math.Min(width, height) / 7, 8, 16), Math.Max(6, (int)((width - 4) / Math.Max(1, label.Length * 0.7))));
             // One fixed caption row: item-name length must never change icon geometry.
-            var textHeight = dimmer && (height < 50 || width < 32) ? 0 : compact ? height / 2 : font + 4;
+            var textHeight = dimmer ? 0 : compact ? height / 2 : font + 4;
             var valueFont = compact ? font : Math.Clamp(Math.Min(width, height) / 6, 8, 18);
-            if (dimmer) valueFont = Math.Clamp(Math.Min(width, height) / 5, 9, 16);
+            if (dimmer) valueFont = Math.Clamp(Math.Min(width, height) / 3, 11, 22);
             value = value ?? "—";
-            if (dimmer && value.Length * valueFont * 0.65 > width - 4) value = value.Replace(" ", "");
+            if (dimmer) value = value.Replace(" ", "");
             if (dimmer) valueFont = Math.Min(valueFont, Math.Max(6, (int)((width - 4) / Math.Max(1, value.Length * 0.7))));
             var valueHeight = Math.Min(height / 2, valueFont + 5);
-            var iconSize = compact ? Math.Max(1, Math.Min(height - 4, width / 3)) : Math.Max(1, Math.Min(width - 6, height - textHeight - valueHeight - 2));
+            var iconSize = compact ? Math.Max(1, Math.Min(height - 4, width / 3)) : Math.Max(1, Math.Min(width - (dimmer ? 2 : 6), height - textHeight - valueHeight - 2));
             var textX = compact && !string.IsNullOrEmpty(symbol) ? iconSize + 6 : 2;
             var textWidth = Math.Max(1, width - textX - 2);
             if (textHeight > 0)

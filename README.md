@@ -174,7 +174,7 @@ The packaged `metadata/DefaultIconTemplate.ict` contains one image area covering
 
 The plugin draws the item label at the top, the complete icon at the largest size available between the text rows, and the state or percentage beneath it. Caption height is fixed for a given image size; long labels are shortened to one line instead of shrinking the icon. The background is black. The state row does not obscure the icon.
 
-Dimmer images use a centered vertical layout on both keys and dial displays. Their heading is abbreviated to an ellipsis and the last four text elements, for example `Dimmer, West` becomes `…West`. Short headings remain unchanged. On displays shorter than 50 pixels or narrower than 32 pixels, the heading is omitted to leave room for the icon and the bottom-centered percentage. The same layout applies to the dimmer ON/OFF button. Short, wide displays no longer place the dimmer title and percentage beside the icon.
+Dimmer images contain no heading on keys or dial displays. The available area is used for a larger centered icon and a larger bottom-centered percentage, formatted compactly as `36%`. The same layout applies to the dimmer ON/OFF button. Item names remain available in the configuration UI.
 
 Restart the plugin service after installing the updated metadata. Existing item selections remain compatible. If a profile has retained a previous or customized icon layout, reset that action's icon to the plugin default; removing and reassigning only that action is an alternative. The name used to organize the action in the configuration UI is not drawn as a second on-device caption by the new template.
 
