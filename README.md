@@ -156,7 +156,7 @@ Selections include both individual `Rollershutter` items and commandable `Group`
 
 **Live state** displays the current item value. OpenHAB-specific Java/printf patterns are not evaluated as C# format strings; units remain part of the raw value.
 
-**Connection status** displays `LIVE` when the WebSocket connection is established, or `REST` when REST retrieval succeeds without WebSockets. Failed retrieval shows a diagnostic such as `HTTP 401`, `HTTP 403`, `TLS ERROR`, `TIMEOUT`, or `REST ERROR`; an empty item list may therefore indicate a connection or authorization problem. This status alone does not confirm that individual devices are reachable. Connection and HTTP problems appear in the host log with the `[OpenHAB NG]` prefix, without token values.
+**Connection status** uses a green icon for `LIVE` when both WebSocket and REST item retrieval work. Orange indicates degraded operation, including working REST fallback without WebSockets, a WebSocket connection with failed REST retrieval, or an ongoing connection attempt. Red indicates no working connection, including an unconfigured or stopped service. Failed retrieval shows a diagnostic such as `HTTP 401`, `HTTP 403`, `TLS ERROR`, `TIMEOUT`, or `REST ERROR`. A WebSocket connection alone no longer hides REST errors behind `LIVE`. This status does not confirm that individual devices are reachable. Connection and HTTP problems appear in the host log with the `[OpenHAB NG]` prefix, without token values.
 
 ## Icon retrieval and caching
 
@@ -209,6 +209,8 @@ dotnet run --project tests-host/OpenHAB.HostTests.csproj --configuration Release
 ```
 
 The tests use an in-memory HTTP handler and do not contact OpenHAB or operate real devices. Generated image previews are placed under the test build's `previews` directory. No host binaries are included in the plugin package. The installed macOS SDK was tested at 90×90, 60×60, and 160×40 pixels. Physical-device rendering and live HTTPS connectivity still require verification after reassigning the actions.
+
+Selector regression tests obtain control names from the SDK's exported control definitions before requesting their options, matching the host path. The SDK normalizes initial uppercase letters (`Group` becomes `group`); option requests and change notifications must use those normalized names. The corrected editor uses explicit lowercase identifiers and case-insensitive event comparisons. Assignments already created with the Action Editor keep their selected parameters; this fix does not require another migration.
 
 ## Identity, origin, and licensing
 

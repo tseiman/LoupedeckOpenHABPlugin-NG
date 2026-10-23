@@ -1,5 +1,12 @@
 # ChangeLog
 
+## 2026-10-23 – Repair empty selectors and add connection health colors
+
+- Fixed a regression introduced by the Action Editor migration: the SDK normalizes `Group` and `Item` control names to `group` and `item`, but case-sensitive event comparisons returned no options for real host requests. Controls, parameter lookup, and change notifications now consistently use lowercase identifiers; event comparisons are case-insensitive.
+- Extended SDK regression coverage to obtain actual exported control names for every item action before requesting group and item options. Earlier tests manually passed uppercase names and missed SDK normalization. Existing Action Editor assignments remain compatible.
+- Added green connection icons for working WebSocket and REST item retrieval, orange for degraded operation or connecting, and red for no working connection. A live WebSocket no longer hides failed REST retrieval behind the LIVE caption. Stopping the service now clears the previous successful REST status.
+- Validation: Release build, real SDK selector/rendering tests, and local REST/WebSocket integration tests passed. Tests cover all item action selectors, exact status icon colors, partial connectivity, REST fallback, and disconnected status.
+
 ## 2026-10-23 – Correct item selection and host rendering
 
 - Replaced legacy tree profile actions with SDK Action Editor controls carrying explicit item parameters into rendering and execution. Internal profile IDs are no longer treated as OpenHAB item names. Existing item-action assignments must be removed and assigned again once; URL and token configuration remain intact.

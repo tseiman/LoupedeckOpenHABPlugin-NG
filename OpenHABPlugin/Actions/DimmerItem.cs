@@ -35,8 +35,8 @@ namespace Loupedeck.OpenHABPluginNG.Actions
             this.AdjustmentValueChanged(); this.ActionImageChanged();
         }
         private void CatalogChanged(object sender, EventArgs e)
-        { this.ActionEditor.ListboxItemsChanged("Group"); this.ActionEditor.ListboxItemsChanged("Item"); }
-        private static string ItemName(ActionEditorActionParameters parameters) => parameters.GetString("Item", "");
+        { this.ActionEditor.ListboxItemsChanged("group"); this.ActionEditor.ListboxItemsChanged("item"); }
+        private static string ItemName(ActionEditorActionParameters parameters) => parameters.GetString("item", "");
         protected override bool ApplyAdjustment(ActionEditorActionParameters parameters, int difference)
         {
             var parameter = ItemName(parameters);

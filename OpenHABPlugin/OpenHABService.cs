@@ -43,8 +43,10 @@ namespace Loupedeck.OpenHABPluginNG
         public IEnumerable<OpenHABCommandItem> Rollershutters => Items.Where(i => i.EffectiveType == "Rollershutter");
         public IEnumerable<OpenHABCommandItem> Labels => Items;
         private volatile string _restStatus = "NOT CONFIGURED";
-        public string ConnectionStatusText => _connected ? "LIVE" : _restStatus;
+        public string ConnectionStatusText => _connected && IsRestConnected ? "LIVE" : _connected ? "WS / " + _restStatus : _restStatus;
         public bool IsRestConnected => _restStatus == "REST";
+        public OpenHABConnectionHealth ConnectionHealth => _connected && IsRestConnected ? OpenHABConnectionHealth.Healthy :
+            _connected || IsRestConnected || _restStatus == "CONNECTING" ? OpenHABConnectionHealth.Degraded : OpenHABConnectionHealth.Disconnected;
 
         public static Uri ValidateBaseUrl(string url)
         {
@@ -357,7 +359,9 @@ namespace Loupedeck.OpenHABPluginNG
             _http?.Dispose(); _http = null;
             _stop?.Dispose(); _stop = null; _worker = null;
             SetConnected(false);
+            SetRestStatus("DISCONNECTED");
         }
         public void Dispose() => StopAsync().GetAwaiter().GetResult();
     }
+    public enum OpenHABConnectionHealth { Healthy, Degraded, Disconnected }
 }

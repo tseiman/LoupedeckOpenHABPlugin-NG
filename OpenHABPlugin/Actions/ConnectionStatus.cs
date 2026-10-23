@@ -10,7 +10,7 @@ namespace Loupedeck.OpenHABPluginNG.Actions
         protected override bool OnUnload()
         { Service.ConnectionChanged -= Changed; return base.OnUnload(); }
         private void Changed(object sender, EventArgs e) => this.ActionImageChanged();
-        protected override BitmapImage GetCommandImage(string parameter, PluginImageSize size) => ItemPresentation.Render(size,
-            "OpenHAB NG", Service.ConnectionStatusText, "switch", Service.IsWebSocketConnected || Service.IsRestConnected);
+        protected override BitmapImage GetCommandImage(string parameter, PluginImageSize size) => ItemPresentation.RenderConnection(
+            size.GetWidth(), size.GetHeight(), Service.ConnectionStatusText, Service.ConnectionHealth);
     }
 }

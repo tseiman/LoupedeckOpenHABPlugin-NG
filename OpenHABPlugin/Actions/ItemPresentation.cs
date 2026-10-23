@@ -12,6 +12,13 @@ namespace Loupedeck.OpenHABPluginNG.Actions
         private static readonly object RenderLock = new object();
         private static readonly Dictionary<(int, int, string, string, string, bool, string), byte[]> Rendered = new();
 
+        internal static BitmapImage RenderConnection(int width, int height, string status, OpenHABConnectionHealth health)
+        {
+            var color = health == OpenHABConnectionHealth.Healthy ? "#36c96b" : health == OpenHABConnectionHealth.Degraded ? "#ffab32" : "#ff4545";
+            var svg = Svg("switch", false).Replace("#a8b2c3", color);
+            return Render(width, height, "OpenHAB NG", status, "switch", false, svg);
+        }
+
         public static BitmapImage Render(PluginImageSize size, string label, string value, string symbol, bool active = false, string serverSvg = null)
             => Render(size.GetWidth(), size.GetHeight(), label, value, symbol, active, serverSvg);
 
@@ -107,7 +114,7 @@ namespace Loupedeck.OpenHABPluginNG.Actions
             ItemEditor.Configure(this.ActionEditor, () => AvailableItems);
         }
         protected abstract IEnumerable<OpenHABCommandItem> AvailableItems { get; }
-        protected static string ItemName(ActionEditorActionParameters parameters) => parameters.GetString("Item", "");
+        protected static string ItemName(ActionEditorActionParameters parameters) => parameters.GetString("item", "");
         protected override string GetCommandDisplayName(ActionEditorActionParameters parameters) => Service.GetItem(ItemName(parameters))?.Label ?? "Select item";
         protected override bool OnLoad()
         {
@@ -125,8 +132,8 @@ namespace Loupedeck.OpenHABPluginNG.Actions
         private void Changed(object sender, OpenHABEventArgs e) => this.ActionImageChanged();
         private void CatalogChanged(object sender, EventArgs e)
         {
-            this.ActionEditor.ListboxItemsChanged("Group");
-            this.ActionEditor.ListboxItemsChanged("Item");
+            this.ActionEditor.ListboxItemsChanged("group");
+            this.ActionEditor.ListboxItemsChanged("item");
         }
     }
 
@@ -134,26 +141,26 @@ namespace Loupedeck.OpenHABPluginNG.Actions
     {
         internal static void Configure(ActionEditor editor, Func<IEnumerable<OpenHABCommandItem>> items)
         {
-            editor.AddControlEx(new ActionEditorListbox("Group", "Group (optional):"));
-            editor.AddControlEx(new ActionEditorListbox("Item", "Item:").SetRequired());
+            editor.AddControlEx(new ActionEditorListbox("group", "Group (optional):"));
+            editor.AddControlEx(new ActionEditorListbox("item", "Item:").SetRequired());
             editor.ListboxItemsRequested += (_, e) =>
             {
                 var snapshot = items().ToArray();
-                if (e.ControlName == "Group")
+                if (string.Equals(e.ControlName, "group", StringComparison.OrdinalIgnoreCase))
                 {
                     e.AddItem("__all__", "All groups", null);
                     foreach (var group in snapshot.Select(i => i.Group ?? "Others").Distinct().OrderBy(g => g)) e.AddItem(group, group, null);
                 }
-                if (e.ControlName == "Item")
+                if (string.Equals(e.ControlName, "item", StringComparison.OrdinalIgnoreCase))
                 {
-                    var group = e.ActionEditorState.GetControlValue("Group");
+                    var group = e.ActionEditorState.GetControlValue("group");
                     foreach (var item in snapshot.Where(i => string.IsNullOrEmpty(group) || group == "__all__" || i.Group == group).OrderBy(i => i.Label))
                         e.AddItem(item.Name, item.Label ?? item.Name, item.Name);
                 }
             };
             editor.ControlValueChanged += (_, e) =>
             {
-                if (e.ControlName == "Group") editor.ListboxItemsChanged("Item");
+                if (string.Equals(e.ControlName, "group", StringComparison.OrdinalIgnoreCase)) editor.ListboxItemsChanged("item");
             };
         }
     }

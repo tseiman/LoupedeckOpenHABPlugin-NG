@@ -42,8 +42,21 @@ async Task Run()
     typeof(OpenHABService).GetField("_http", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(service, http);
     typeof(OpenHABService).GetField("_baseUri", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(service, new Uri("http://openhab.test/"));
     await service.RefreshItemsAsync();
-    var actions = new ActionEditorAction[] { new LampItem(), new SocketItem(), new DimmerItem(), new DimmerSwitchItem(), new RollershutterUp(), new RollershutterStop(), new RollershutterDown(), new LabelItem() };
+    var actions = new ActionEditorAction[] { new SwitchItem(), new LampItem(), new SocketItem(), new DimmerItem(), new DimmerSwitchItem(), new RollershutterUp(), new RollershutterStop(), new RollershutterDown(), new LabelItem() };
     foreach (var action in actions) typeof(ActionEditorAction).GetProperty("Plugin")!.SetValue(action, plugin);
+    // Use the names actually exported by the SDK, as the host does. Its constructors
+    // normalize the initial letter; hand-written "Group"/"Item" requests hid a regression.
+    foreach (var action in actions)
+    {
+        var controls = ((IEnumerable<ActionEditorControlBase>)Call(action.ActionEditor, "GetControls")).ToArray();
+        var groupName = controls.Single(c => c.Name.Equals("group", StringComparison.OrdinalIgnoreCase)).Name;
+        var itemName = controls.Single(c => c.Name.Equals("item", StringComparison.OrdinalIgnoreCase)).Name;
+        Check(groupName == "group" && itemName == "item", action.Name + " exposes normalized SDK control names");
+        var hostState = new ActionEditorState(new[] { new ActionEditorControlState { Name = groupName, Value = "__all__" } });
+        var groups = (ActionEditorListboxItemsRequestedEventArgs)Call(action.ActionEditor, "InvokeListboxItemsRequestedEvent", hostState, groupName);
+        var items = (ActionEditorListboxItemsRequestedEventArgs)Call(action.ActionEditor, "InvokeListboxItemsRequestedEvent", hostState, itemName);
+        Check(groups.Items.Any(i => i.Name == "__all__") && items.Items.Count > 0, action.Name + " populates real host group and item requests");
+    }
     var shutter = actions.OfType<RollershutterDown>().Single();
     var state = new ActionEditorState(new[] { new ActionEditorControlState { Name = "Group", Value = "__all__" }, new ActionEditorControlState { Name = "Item", Value = "Blind" } });
     var groupOptions = (ActionEditorListboxItemsRequestedEventArgs)Call(shutter.ActionEditor, "InvokeListboxItemsRequestedEvent", state, "Group");
@@ -74,6 +87,22 @@ async Task Run()
     Call(dimmer, "RunCommand", Parameters("Dimmer"));
     Check(handler.Commands.Last() == ("Dimmer", "0"), "dial press uses the same explicit toggle rule");
     var render = typeof(OpenHABPlugin).Assembly.GetType("Loupedeck.OpenHABPluginNG.Actions.ItemPresentation")!.GetMethod("Render", new[] { typeof(int), typeof(int), typeof(string), typeof(string), typeof(string), typeof(bool), typeof(string) })!;
+    var connectionRender = render.DeclaringType!.GetMethod("RenderConnection", BindingFlags.Static | BindingFlags.NonPublic)!;
+    foreach (var test in new[] { (OpenHABConnectionHealth.Healthy, (byte)54, (byte)201, (byte)107), (OpenHABConnectionHealth.Degraded, (byte)255, (byte)171, (byte)50), (OpenHABConnectionHealth.Disconnected, (byte)255, (byte)69, (byte)69) })
+    {
+        using var image = (BitmapImage)connectionRender.Invoke(null, new object[] { 90, 90, test.Item1.ToString(), test.Item1 })!;
+        Check(HasColor(image, test.Item2, test.Item3, test.Item4), "status icon has the correct color for " + test.Item1);
+    }
+    void Connection(bool ws, string rest) { typeof(OpenHABService).GetField("_connected", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(service, ws); typeof(OpenHABService).GetField("_restStatus", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(service, rest); }
+    Connection(true, "REST");
+    Check(service.ConnectionHealth == OpenHABConnectionHealth.Healthy && service.ConnectionStatusText == "LIVE", "live WebSocket and working item retrieval are healthy");
+    Connection(true, "HTTP 401");
+    Check(service.ConnectionHealth == OpenHABConnectionHealth.Degraded && service.ConnectionStatusText.Contains("HTTP 401"), "WebSocket alone cannot hide failed item retrieval");
+    Connection(false, "REST");
+    Check(service.ConnectionHealth == OpenHABConnectionHealth.Degraded, "REST fallback is orange");
+    Connection(false, "TLS ERROR");
+    Check(service.ConnectionHealth == OpenHABConnectionHealth.Disconnected, "no working connection is red");
+    Connection(false, "REST");
     var output = Path.Combine(AppContext.BaseDirectory, "previews");
     Directory.CreateDirectory(output);
     foreach (var size in new[] { (90, 90), (60, 60), (160, 40) })
