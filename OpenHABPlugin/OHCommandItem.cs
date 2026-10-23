@@ -16,6 +16,13 @@ namespace Loupedeck.OpenHABPluginNG
         /// <summary>Base type of a commandable Group item.</summary>
         public String? GroupType { get; set; }
         public String? EffectiveType => Type == "Group" ? GroupType : Type;
+        public String[] Tags { get; set; } = Array.Empty<String>();
+        public bool ReadOnly { get; set; }
+        /// <summary>Native dimmers and explicitly tagged numeric brightness controls.</summary>
+        public bool IsDimmer => !ReadOnly && (EffectiveType == "Dimmer" ||
+            ((EffectiveType == "Number" || EffectiveType == "Number:Dimensionless") &&
+             Array.Exists(Tags, t => String.Equals(t, "Control", StringComparison.OrdinalIgnoreCase)) &&
+             Array.Exists(Tags, t => String.Equals(t, "Brightness", StringComparison.OrdinalIgnoreCase))));
         /// <summary>
         /// Label
         /// </summary>

@@ -148,6 +148,8 @@ Changing the URL preserves the token. Reconfiguration ends the previous connecti
 
 **Dimmer (%)** displays numeric values as percentages, `ON` as `100 %`, `OFF` as `0 %`, and `NULL`/`UNDEF` as `—`. The OpenHAB icon also follows the percentage, for example `state=36`. Rotary adjustments are limited to 0–100. Rapid turns accumulate even when device feedback is delayed.
 
+The dimmer selector includes native `Dimmer` items and writable `Number` / `Number:Dimensionless` items carrying both semantic tags `Control` and `Brightness`, including groups with those numeric base types. These brightness controls use a 0–100 scale. Generic numeric items, brightness measurements, humidity sensors, and read-only values are excluded. The same selection applies to the dedicated dimmer ON/OFF action.
+
 **Dimmer ON/OFF (0/100%)** is a separate touch-button action for dimmer items. A confirmed state of 0 % sends `100`; any confirmed value above 0 % sends `0`. Pressing the dimmer dial follows the same rule. Unknown states do not send a command. Both square button images and short, wide dial images include the item label and percentage.
 
 For **rollershutters**, arrange three keys vertically: **Rollladen AUF** (UP), **Rollladen STOP** (STOP), and **Rollladen AB** (DOWN), selecting the same item on each key. These are three independently placeable widgets; no predefined three-cell profile layout is created automatically. The symbols are embedded original Framework7 SVGs: UP uses the gray `arrowtriangle_up`, STOP the red `stop` square, and DOWN the gray `arrowtriangle_down`, matching the web UI reference. No network request or installed F7 font is required. Users arrange the keys vertically in their profiles. In OpenHAB, 0 % means fully open and 100 % fully closed.
@@ -165,6 +167,14 @@ Key rendering does not wait for network requests. SVGs are loaded in the backgro
 Requests use the configured OpenHAB server; no private hostname is hard-coded in the implementation.
 
 Images are composed with the host SDK's `BitmapBuilder`. SVGs are explicitly rasterized with `VectorImage.ToBitmap(width, height)` before drawing to preserve their original colors; the SDK's implicit SVG conversion can recolor monochrome symbols. A separate bounded cache keeps up to 128 finished raster images, keyed by size, caption, displayed state, symbol, and SVG content. Each render returns its own image object. State changes invalidate the visible action instances; catalog changes refresh the selectors separately.
+
+### Full-key layout
+
+The packaged `metadata/DefaultIconTemplate.ict` contains one image area covering the entire key and no host text area. This prevents the host's default image-plus-caption layout from adding the user-entered action name underneath the plugin image and shrinking it. `IsWidget` remains enabled, and the image-only template also covers the Action Editor profile rendering path.
+
+The plugin draws the item label at the top, the complete icon at the largest size available between the text rows, and the state or percentage beneath it. The background is black. Name and value font sizes were increased, with a separate layout for short, wide dial displays. The state row does not obscure the icon.
+
+Restart the plugin service after installing the updated metadata. Existing item selections remain compatible. If a profile has retained a previous or customized icon layout, reset that action's icon to the plugin default; removing and reassigning only that action is an alternative. The name used to organize the action in the configuration UI is not drawn as a second on-device caption by the new template.
 
 ## Integration tests
 
@@ -209,6 +219,8 @@ dotnet run --project tests-host/OpenHAB.HostTests.csproj --configuration Release
 ```
 
 The tests use an in-memory HTTP handler and do not contact OpenHAB or operate real devices. Generated image previews are placed under the test build's `previews` directory. No host binaries are included in the plugin package. The installed macOS SDK was tested at 90×90, 60×60, and 160×40 pixels. Physical-device rendering and live HTTPS connectivity still require verification after reassigning the actions.
+
+Rendering tests also load the actual packaged icon template with the installed host's `ActionIcon` implementation, try to set an additional caption named `test`, and compose the result with `ActionIconBuilder`. Pixel comparison verifies that the host keeps the full image unchanged and adds no caption. Brightness-selection tests include a numeric brightness control, a humidity sensor, and a read-only control.
 
 Selector regression tests obtain control names from the SDK's exported control definitions before requesting their options, matching the host path. The SDK normalizes initial uppercase letters (`Group` becomes `group`); option requests and change notifications must use those normalized names. The corrected editor uses explicit lowercase identifiers and case-insensitive event comparisons. Assignments already created with the Action Editor keep their selected parameters; this fix does not require another migration.
 

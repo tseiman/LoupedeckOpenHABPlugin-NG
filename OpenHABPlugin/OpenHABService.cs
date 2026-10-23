@@ -39,7 +39,7 @@ namespace Loupedeck.OpenHABPluginNG
         public event EventHandler? CatalogChanged;
         public IEnumerable<OpenHABCommandItem> Items { get { lock (_sync) return _items.Values.ToArray(); } }
         public IEnumerable<OpenHABCommandItem> Switches => Items.Where(i => i.EffectiveType == "Switch");
-        public IEnumerable<OpenHABCommandItem> Dimmer => Items.Where(i => i.EffectiveType == "Dimmer");
+        public IEnumerable<OpenHABCommandItem> Dimmer => Items.Where(i => i.IsDimmer);
         public IEnumerable<OpenHABCommandItem> Rollershutters => Items.Where(i => i.EffectiveType == "Rollershutter");
         public IEnumerable<OpenHABCommandItem> Labels => Items;
         private volatile string _restStatus = "NOT CONFIGURED";
@@ -131,11 +131,13 @@ namespace Loupedeck.OpenHABPluginNG
                             Name = name, Link = new Uri(_baseUri!, "rest/items/" + Uri.EscapeDataString(name)).ToString(),
                             Label = (string?)json["label"] ?? name, Type = (string?)json["type"], GroupType = (string?)json["groupType"], State = state,
                             Group = (string?)json["groupNames"]?.FirstOrDefault() ?? "Others",
-                            Category = (string?)json["category"], Pattern = (string?)json["stateDescription"]?["pattern"]
+                            Category = (string?)json["category"], Pattern = (string?)json["stateDescription"]?["pattern"],
+                            Tags = json["tags"]?.Values<string>().Where(t => t != null).Select(t => t!).ToArray() ?? Array.Empty<string>(),
+                            ReadOnly = (bool?)json["stateDescription"]?["readOnly"] ?? false
                         };
                         next[name] = item;
-                        if (previous == null || previous.Label != item.Label || previous.Group != item.Group || previous.EffectiveType != item.EffectiveType) catalogChanged = true;
-                        if (previous == null || previous.State != state || previous.Label != item.Label || previous.Category != item.Category || previous.Group != item.Group || previous.EffectiveType != item.EffectiveType) changed.Add(item);
+                        if (previous == null || previous.Label != item.Label || previous.Group != item.Group || previous.EffectiveType != item.EffectiveType || previous.IsDimmer != item.IsDimmer) catalogChanged = true;
+                        if (previous == null || previous.State != state || previous.Label != item.Label || previous.Category != item.Category || previous.Group != item.Group || previous.EffectiveType != item.EffectiveType || previous.IsDimmer != item.IsDimmer) changed.Add(item);
                     }
                     foreach (var removed in _items.Keys.Except(next.Keys))
                     {
@@ -288,7 +290,7 @@ namespace Loupedeck.OpenHABPluginNG
             var category = categoryOverride ?? item.Category;
             if (string.IsNullOrWhiteSpace(category)) return null;
             var state = item.State;
-            if (category == "light" || item.EffectiveType == "Dimmer")
+            if (category == "light" || item.IsDimmer)
             {
                 if (state == "ON") state = "100";
                 else if (state == "OFF") state = "0";

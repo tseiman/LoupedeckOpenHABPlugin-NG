@@ -1,5 +1,14 @@
 # ChangeLog
 
+## 2026-10-23 – Full-key icon layout and numeric brightness controls
+
+- Added an image-only `metadata/DefaultIconTemplate.ict` with a 100% image area and no host caption. The template prevents Action Editor profile images from being reduced to make room for an additional user-entered action name. Existing `IsWidget` flags remain enabled.
+- Changed the rendered background to black, increased caption/value font sizes, and enlarged complete icons within the space between text rows. The top item label is retained; the state row does not obscure the icon. Short, wide dial displays retain their separate layout.
+- Included writable `Number` and `Number:Dimensionless` brightness controls tagged with both `Control` and `Brightness` in dimmer selection, including typed groups. REST metadata now retains semantic tags and read-only status. Native dimmers remain supported; numeric measurements and read-only values are excluded. Catalog notifications account for changes in dimmer eligibility.
+- Applied percentage formatting and state-dependent icon normalization to the additional brightness controls. Added coverage for numeric dimmer commands, numeric groups, measurement exclusion, and read-only exclusion.
+- Validated the packaged template with the actual installed host `ActionIcon` and `ActionIconBuilder`, not just the plugin bitmap renderer. Setting an extra caption named `test` creates no text item, and the composed image is pixel-identical to the original full-size image. Release build and local SDK/integration tests passed. No real devices were operated.
+- Existing item selections remain compatible. The host must reload the updated metadata; profiles retaining a previous/custom icon layout may need their icon reset to the plugin default.
+
 ## 2026-10-23 – Repair empty selectors and add connection health colors
 
 - Fixed a regression introduced by the Action Editor migration: the SDK normalizes `Group` and `Item` control names to `group` and `item`, but case-sensitive event comparisons returned no options for real host requests. Controls, parameter lookup, and change notifications now consistently use lowercase identifiers; event comparisons are case-insensitive.

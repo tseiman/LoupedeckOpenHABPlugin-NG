@@ -44,29 +44,38 @@ namespace Loupedeck.OpenHABPluginNG.Actions
         {
             using var bitmap = new BitmapBuilder(width, height);
             var foreground = active ? new BitmapColor(0xff, 0xd1, 0x55) : new BitmapColor(0xa8, 0xb2, 0xc3);
-            bitmap.FillRectangle(0, 0, bitmap.Width, bitmap.Height, new BitmapColor(0x14, 0x1c, 0x2b));
+            bitmap.Clear(BitmapColor.Black);
             // Dial strips are short and wide: give their text room instead of clipping three rows.
             var compact = height < 60 || width > height * 2;
-            var font = Math.Clamp(Math.Min(width / 8, height / 5), 9, 16);
-            var textHeight = Math.Max(font + 4, height / 4);
-            var iconSize = compact ? Math.Max(12, Math.Min(height - 6, width / 3)) : Math.Max(12, Math.Min(width / 2, height - 2 * textHeight));
-            var textX = compact ? iconSize + 6 : 2;
+            var font = compact ? Math.Clamp(height / 3, 10, 16) : Math.Clamp(width / 7, 10, 18);
+            var captionLines = (label ?? "Select item").Length * font * 0.55 > width - 4 ? 2 : 1;
+            var textHeight = compact ? height / 2 : Math.Min(height / 3, captionLines * font + 4);
+            var valueFont = compact ? font : Math.Clamp(width / 6, 11, 18);
+            var valueHeight = Math.Min(height / 2, valueFont + 5);
+            var iconSize = compact ? Math.Max(12, Math.Min(height - 4, width / 3)) : Math.Max(12, Math.Min(width - 6, height - textHeight - valueHeight - 2));
+            var textX = compact && !string.IsNullOrEmpty(symbol) ? iconSize + 6 : 2;
             var textWidth = Math.Max(1, width - textX - 2);
-            bitmap.DrawText(label ?? "Select item", textX, 1, textWidth, compact ? height / 2 : textHeight, BitmapColor.White, font);
+            bitmap.DrawText(label ?? "Select item", textX, 1, textWidth, textHeight, BitmapColor.White, font);
+            var iconY = compact ? (height - iconSize) / 2 : textHeight + 1;
             if (!string.IsNullOrEmpty(symbol))
             {
                 try
                 {
                     using var icon = Rasterize(serverSvg ?? Svg(symbol, active), iconSize);
-                    bitmap.DrawImage(icon, compact ? 2 : (width - iconSize) / 2, (height - iconSize) / 2, iconSize, iconSize);
+                    bitmap.DrawImage(icon, compact ? 2 : (width - iconSize) / 2, iconY, iconSize, iconSize);
                 }
                 catch
                 {
                     using var icon = Rasterize(Svg(symbol, active), iconSize);
-                    bitmap.DrawImage(icon, compact ? 2 : (width - iconSize) / 2, (height - iconSize) / 2, iconSize, iconSize);
+                    bitmap.DrawImage(icon, compact ? 2 : (width - iconSize) / 2, iconY, iconSize, iconSize);
                 }
             }
-            bitmap.DrawText(value ?? "—", textX, compact ? height / 2 : height - textHeight, textWidth, compact ? height - height / 2 : textHeight, foreground, font);
+            var valueWidth = compact ? textWidth : Math.Min(width - 4, Math.Max(30, (int)((value ?? "—").Length * valueFont * 0.7) + 10));
+            var valueX = compact ? textX : (width - valueWidth) / 2;
+            var valueY = compact ? height / 2 : height - valueHeight;
+            // Reserve the value row so the full icon remains visible.
+            bitmap.FillRectangle(valueX, valueY, valueWidth, valueHeight, BitmapColor.Black);
+            bitmap.DrawText(value ?? "—", valueX, valueY, valueWidth, valueHeight, foreground, valueFont);
             return bitmap.ToImage();
         }
 

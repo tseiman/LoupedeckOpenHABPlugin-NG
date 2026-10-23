@@ -8,7 +8,7 @@ namespace Loupedeck.OpenHABPluginNG.Actions
         {
             var parameter = ItemName(parameters);
             var item = Service.GetItem(parameter);
-            var value = item?.EffectiveType == "Dimmer" || item?.EffectiveType == "Rollershutter" ? OpenHABService.FormatPercent(item.State) : item?.State ?? "—";
+            var value = item?.IsDimmer == true || item?.EffectiveType == "Rollershutter" ? OpenHABService.FormatPercent(item.State) : item?.State ?? "—";
             return ItemPresentation.Render(width, height, item?.Label ?? "Select item", value, "");
         }
     }

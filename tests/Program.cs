@@ -229,6 +229,13 @@ Check(OpenHABService.FormatPercent("37") == "37 %" && OpenHABService.FormatPerce
 var culture = System.Globalization.CultureInfo.CurrentCulture;
 System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
 Check(OpenHABService.ExtractNumericalValue("12.5 W") == 12.5, "numbers use invariant OpenHAB formatting");
+Check(new OpenHABCommandItem { Type = "Number", Tags = new[] { "Control", "Brightness" } }.IsDimmer &&
+    new OpenHABCommandItem { Type = "Group", GroupType = "Number:Dimensionless", Tags = new[] { "Brightness", "Control" } }.IsDimmer,
+    "tagged numeric brightness items and groups are dimmers");
+Check(!new OpenHABCommandItem { Type = "Number:Dimensionless", Tags = new[] { "Measurement", "Humidity" } }.IsDimmer &&
+    !new OpenHABCommandItem { Type = "Number:Illuminance", Tags = new[] { "Measurement", "Brightness" } }.IsDimmer &&
+    !new OpenHABCommandItem { Type = "Number", Tags = new[] { "Control", "Brightness" }, ReadOnly = true }.IsDimmer,
+    "sensors and read-only values are not exposed as dimmers");
 System.Globalization.CultureInfo.CurrentCulture = culture;
 
 Check(service.GetCachedIconSvg("Lamp", "light") == null, "first icon lookup returns immediately without waiting for HTTP");
