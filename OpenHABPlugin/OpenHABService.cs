@@ -36,11 +36,15 @@ namespace Loupedeck.OpenHABPluginNG
         public bool IsWebSocketConnected => _connected;
         public event EventHandler<OpenHABEventArgs>? ItemChanged;
         public event EventHandler? ConnectionChanged;
+        public event EventHandler? CatalogChanged;
         public IEnumerable<OpenHABCommandItem> Items { get { lock (_sync) return _items.Values.ToArray(); } }
-        public IEnumerable<OpenHABCommandItem> Switches => Items.Where(i => i.Type == "Switch");
-        public IEnumerable<OpenHABCommandItem> Dimmer => Items.Where(i => i.Type == "Dimmer");
-        public IEnumerable<OpenHABCommandItem> Rollershutters => Items.Where(i => i.Type == "Rollershutter");
+        public IEnumerable<OpenHABCommandItem> Switches => Items.Where(i => i.EffectiveType == "Switch");
+        public IEnumerable<OpenHABCommandItem> Dimmer => Items.Where(i => i.EffectiveType == "Dimmer");
+        public IEnumerable<OpenHABCommandItem> Rollershutters => Items.Where(i => i.EffectiveType == "Rollershutter");
         public IEnumerable<OpenHABCommandItem> Labels => Items;
+        private volatile string _restStatus = "NOT CONFIGURED";
+        public string ConnectionStatusText => _connected ? "LIVE" : _restStatus;
+        public bool IsRestConnected => _restStatus == "REST";
 
         public static Uri ValidateBaseUrl(string url)
         {
@@ -59,6 +63,7 @@ namespace Loupedeck.OpenHABPluginNG
             {
                 await StopCoreAsync().ConfigureAwait(false);
                 _baseUri = uri; _token = token.Trim();
+                SetRestStatus("CONNECTING");
                 // The API uses explicit tokens, never browser cookies.
                 _http = new HttpClient(new HttpClientHandler { UseCookies = false }) { Timeout = TimeSpan.FromSeconds(10) };
                 if (_token.Length > 0) _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _token);
@@ -84,7 +89,14 @@ namespace Loupedeck.OpenHABPluginNG
         {
             try { await RefreshItemsAsync(ct).ConfigureAwait(false); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
-            catch (Exception ex) { Log("Item refresh failed: " + ex.GetType().Name); }
+            catch (Exception ex)
+            {
+                var status = ex is HttpRequestException request && request.StatusCode.HasValue ? "HTTP " + (int)request.StatusCode.Value :
+                    ex is OperationCanceledException ? "TIMEOUT" :
+                    ex.InnerException is System.Security.Authentication.AuthenticationException || ex.InnerException is System.Security.Cryptography.CryptographicException ? "TLS ERROR" : "REST ERROR";
+                SetRestStatus(status);
+                Log("Item refresh failed: " + status + " (" + ex.GetType().Name + ")");
+            }
         }
         public async Task RefreshItemsAsync(CancellationToken ct = default)
         {
@@ -99,6 +111,7 @@ namespace Loupedeck.OpenHABPluginNG
                 response.EnsureSuccessStatusCode();
                 var data = JArray.Parse(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
                 var changed = new List<OpenHABCommandItem>();
+                var catalogChanged = false;
                 lock (_sync)
                 {
                     if (generation != _generation || ct.IsCancellationRequested) return;
@@ -114,19 +127,27 @@ namespace Loupedeck.OpenHABPluginNG
                         var item = new OpenHABCommandItem
                         {
                             Name = name, Link = new Uri(_baseUri!, "rest/items/" + Uri.EscapeDataString(name)).ToString(),
-                            Label = (string?)json["label"] ?? name, Type = (string?)json["type"], State = state,
+                            Label = (string?)json["label"] ?? name, Type = (string?)json["type"], GroupType = (string?)json["groupType"], State = state,
                             Group = (string?)json["groupNames"]?.FirstOrDefault() ?? "Others",
                             Category = (string?)json["category"], Pattern = (string?)json["stateDescription"]?["pattern"]
                         };
                         next[name] = item;
-                        if (previous == null || previous.State != state || previous.Label != item.Label || previous.Category != item.Category) changed.Add(item);
+                        if (previous == null || previous.Label != item.Label || previous.Group != item.Group || previous.EffectiveType != item.EffectiveType) catalogChanged = true;
+                        if (previous == null || previous.State != state || previous.Label != item.Label || previous.Category != item.Category || previous.Group != item.Group || previous.EffectiveType != item.EffectiveType) changed.Add(item);
                     }
                     foreach (var removed in _items.Keys.Except(next.Keys))
+                    {
+                        catalogChanged = true;
                         changed.Add(new OpenHABCommandItem { Name = removed, State = "NULL" });
+                    }
                     _items = next;
                     foreach (var missing in _versions.Keys.Except(next.Keys).ToArray()) _versions.Remove(missing);
                 }
                 foreach (var item in changed) Notify(item);
+                if (catalogChanged)
+                    foreach (var handler in CatalogChanged?.GetInvocationList() ?? Array.Empty<Delegate>())
+                        try { ((EventHandler)handler)(this, EventArgs.Empty); } catch { }
+                SetRestStatus("REST");
             }
             finally { _refresh.Release(); }
         }
@@ -257,7 +278,7 @@ namespace Loupedeck.OpenHABPluginNG
             }
         }
         public string? GetStateOfItem(string parameter) => GetItem(parameter)?.State;
-        public string GetItemLabel(string parameter) => GetItem(parameter)?.Label ?? parameter;
+        public string GetItemLabel(string parameter) => GetItem(parameter)?.Label ?? "Select item";
         public string? GetCachedIconSvg(string parameter, string? categoryOverride = null)
         {
             var item = GetItem(parameter);
@@ -265,7 +286,7 @@ namespace Loupedeck.OpenHABPluginNG
             var category = categoryOverride ?? item.Category;
             if (string.IsNullOrWhiteSpace(category)) return null;
             var state = item.State;
-            if (category == "light" || item.Type == "Dimmer")
+            if (category == "light" || item.EffectiveType == "Dimmer")
             {
                 if (state == "ON") state = "100";
                 else if (state == "OFF") state = "0";
@@ -302,6 +323,11 @@ namespace Loupedeck.OpenHABPluginNG
             var match = Regex.Match(input, @"[-+]?[0-9]*\.?[0-9]+");
             return match.Success && double.TryParse(match.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? value : double.NaN;
         }
+        public static string? DimmerToggleCommand(string? state)
+        {
+            var value = state == "ON" ? 100 : state == "OFF" ? 0 : ExtractNumericalValue(state);
+            return double.IsNaN(value) || value < 0 || value > 100 ? null : value > 0 ? "0" : "100";
+        }
         public static string FormatPercent(string? state)
         {
             if (state == "ON") return "100 %";
@@ -314,6 +340,13 @@ namespace Loupedeck.OpenHABPluginNG
             await _lifecycle.WaitAsync().ConfigureAwait(false);
             try { await StopCoreAsync().ConfigureAwait(false); }
             finally { _lifecycle.Release(); }
+        }
+        private void SetRestStatus(string status)
+        {
+            if (_restStatus == status) return;
+            _restStatus = status;
+            foreach (var handler in ConnectionChanged?.GetInvocationList() ?? Array.Empty<Delegate>())
+                try { ((EventHandler)handler)(this, EventArgs.Empty); } catch { }
         }
         private async Task StopCoreAsync()
         {

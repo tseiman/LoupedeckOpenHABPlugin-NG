@@ -8,10 +8,16 @@ namespace Loupedeck.OpenHABPluginNG.Actions
         private readonly string _caption;
         protected RollershutterItem(string caption, string command, string symbol) : base("Rollladen " + caption, "Rollershutters")
         { _command = command; _symbol = symbol; _caption = caption; }
-        protected override PluginProfileActionData GetProfileActionData() => ItemPresentation.Tree("Select rollershutter", Service.Rollershutters);
-        protected override async void RunCommand(string parameter) => await Owner.ExecuteAsync(parameter, _command);
-        protected override BitmapImage GetCommandImage(string parameter, PluginImageSize size) => ItemPresentation.Render(size,
-            Service.GetItemLabel(parameter), _caption + " · " + OpenHABService.FormatPercent(Service.GetStateOfItem(parameter)), _symbol);
+        protected override System.Collections.Generic.IEnumerable<OpenHABCommandItem> AvailableItems => Service.Rollershutters;
+        protected override bool RunCommand(ActionEditorActionParameters parameters)
+        {
+            var item = ItemName(parameters);
+            if (Service.GetItem(item) == null) return false;
+            _ = Owner.ExecuteAsync(item, _command);
+            return true;
+        }
+        protected override BitmapImage GetCommandImage(ActionEditorActionParameters parameters, int width, int height) => ItemPresentation.Render(width, height,
+            Service.GetItem(ItemName(parameters))?.Label ?? "Select item", _caption + " · " + OpenHABService.FormatPercent(Service.GetStateOfItem(ItemName(parameters))), _symbol);
     }
     public class RollershutterUp : RollershutterItem { public RollershutterUp() : base("AUF", "UP", "arrowtriangle_up") { } }
     public class RollershutterStop : RollershutterItem { public RollershutterStop() : base("STOP", "STOP", "stop") { } }

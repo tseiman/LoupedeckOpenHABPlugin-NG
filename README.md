@@ -125,7 +125,11 @@ If you supplied a custom `PluginDir`, pass it to both build and clean. The link 
 1. Select **OpenHAB NG** in the host application.
 2. Assign **Set OpenHAB URL** to a key, enter the server URL, such as `http://openhab.local:8080`, and run it once. Base paths behind reverse proxies are supported.
 3. If required, run **Set OpenHAB API token**. The token is used for REST and WebSocket authentication. It is stored as a profile parameter and in the local `config.json`; handle that configuration accordingly. Alternatively, use `mcedit` to edit the token directly in the NG configuration directory without placing it in a key parameter.
-4. Select the desired actions after the initial item retrieval. If an already-open selection menu is still empty, close and reopen it.
+4. Select the desired actions after the initial item retrieval. Choose **All groups** (or leave the optional group empty) to see every compatible item, including ungrouped items. Dropdowns update when the item catalog changes.
+
+### Updating existing action assignments
+
+Item actions now use the SDK's [Action Editor](https://logitech.github.io/actions-sdk-docs/csharp/plugin-features/action-editor-actions/) with explicit `Group` and `Item` parameters. Old assignments created with the legacy profile-action editor must be removed and assigned again once. The old editor supplied an internal profile ID during image rendering instead of the selected OpenHAB item, resulting in IDs on the display, missing values, and static icons. Server URL and token settings are preserved. No automatic or guessed mapping between existing profile IDs and items is performed.
 
 NG uses the data directory provided by the host for **OpenHABNG**. The old plugin and its configuration are not migrated automatically. A separate `config.json` can contain:
 
@@ -144,17 +148,23 @@ Changing the URL preserves the token. Reconfiguration ends the previous connecti
 
 **Dimmer (%)** displays numeric values as percentages, `ON` as `100 %`, `OFF` as `0 %`, and `NULL`/`UNDEF` as `—`. The OpenHAB icon also follows the percentage, for example `state=36`. Rotary adjustments are limited to 0–100. Rapid turns accumulate even when device feedback is delayed.
 
+**Dimmer ON/OFF (0/100%)** is a separate touch-button action for dimmer items. A confirmed state of 0 % sends `100`; any confirmed value above 0 % sends `0`. Pressing the dimmer dial follows the same rule. Unknown states do not send a command. Both square button images and short, wide dial images include the item label and percentage.
+
 For **rollershutters**, arrange three keys vertically: **Rollladen AUF** (UP), **Rollladen STOP** (STOP), and **Rollladen AB** (DOWN), selecting the same item on each key. These are three independently placeable widgets; no predefined three-cell profile layout is created automatically. The symbols are embedded original Framework7 SVGs: UP uses the gray `arrowtriangle_up`, STOP the red `stop` square, and DOWN the gray `arrowtriangle_down`, matching the web UI reference. No network request or installed F7 font is required. Users arrange the keys vertically in their profiles. In OpenHAB, 0 % means fully open and 100 % fully closed.
+
+Selections include both individual `Rollershutter` items and commandable `Group` items whose `groupType` is `Rollershutter`. Switch and dimmer selections also include groups with the corresponding base type.
 
 **Live state** displays the current item value. OpenHAB-specific Java/printf patterns are not evaluated as C# format strings; units remain part of the raw value.
 
-**Connection status** displays `LIVE` when the WebSocket connection is established, otherwise `REST / OFFLINE`. This status alone does not confirm that individual devices are reachable. Connection and HTTP problems appear in the host log with the `[OpenHAB NG]` prefix.
+**Connection status** displays `LIVE` when the WebSocket connection is established, or `REST` when REST retrieval succeeds without WebSockets. Failed retrieval shows a diagnostic such as `HTTP 401`, `HTTP 403`, `TLS ERROR`, `TIMEOUT`, or `REST ERROR`; an empty item list may therefore indicate a connection or authorization problem. This status alone does not confirm that individual devices are reachable. Connection and HTTP problems appear in the host log with the `[OpenHAB NG]` prefix, without token values.
 
 ## Icon retrieval and caching
 
 Key rendering does not wait for network requests. SVGs are loaded in the background and trigger a redraw when available. Identical category/state combinations share a request. The in-memory cache holds up to 128 variants, allows at most four concurrent downloads, and refreshes successful entries on demand after five minutes. Failed requests are retried no sooner than 30 seconds later. Cache activity and downloads stop when the URL changes or the plugin unloads. The configured API token is also used for icon requests.
 
 Requests use the configured OpenHAB server; no private hostname is hard-coded in the implementation.
+
+Images are composed with the host SDK's `BitmapBuilder`. SVGs are explicitly rasterized with `VectorImage.ToBitmap(width, height)` before drawing to preserve their original colors; the SDK's implicit SVG conversion can recolor monochrome symbols. A separate bounded cache keeps up to 128 finished raster images, keyed by size, caption, displayed state, symbol, and SVG content. Each render returns its own image object. State changes invalidate the visible action instances; catalog changes refresh the selectors separately.
 
 ## Integration tests
 
@@ -182,7 +192,23 @@ An optional live test retrieves SVGs only, without item queries or device comman
 OPENHAB_ICON_SERVER=https://openhab.example.org:8443 dotnet run --project tests/OpenHAB.IntegrationTests.csproj --no-restore -- --icons-only
 ```
 
-On the development Mac, direct HTTPS requests through curl return valid SVGs, while the installed .NET 8 and .NET 9 runtimes fail with `AppleCrypto: bad certificate format`. Certificate validation remains enabled. The cause and behavior in the actual Logi host still require investigation; until then, only local fallback icons may be available there.
+On the development Mac, direct HTTPS requests through curl return valid SVGs with successful certificate verification, while a standalone .NET 10 request still fails with `AppleCrypto: bad certificate format`. Certificate validation remains enabled. The cause and behavior in the actual Logi host still require investigation. Until HTTPS succeeds in the host, remote icons and item discovery may remain unavailable there. `TLS ERROR` distinguishes this problem from a successful REST fallback connection.
+
+### Host SDK action and rendering tests
+
+These additional tests require the installed Logi host API and its rendering libraries. They exercise the actual SDK Action Editor, item parameters, shutter commands, dimmer button and dial press, image sizes, fallback rendering, and preservation of SVG colors:
+
+```bash
+dotnet run --project tests-host/OpenHAB.HostTests.csproj --configuration Release
+```
+
+For a nonstandard installation, pass the build property and the runtime library directory:
+
+```bash
+dotnet run --project tests-host/OpenHAB.HostTests.csproj --configuration Release -p:PluginApiDir="/path/to/sdk" -- "/path/to/sdk"
+```
+
+The tests use an in-memory HTTP handler and do not contact OpenHAB or operate real devices. Generated image previews are placed under the test build's `previews` directory. No host binaries are included in the plugin package. The installed macOS SDK was tested at 90×90, 60×60, and 160×40 pixels. Physical-device rendering and live HTTPS connectivity still require verification after reassigning the actions.
 
 ## Identity, origin, and licensing
 

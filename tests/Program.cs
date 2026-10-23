@@ -54,7 +54,7 @@ builder.WebHost.UseKestrel(o => o.Listen(IPAddress.Loopback, 0));
 await using var server = builder.Build();
 server.UseWebSockets();
 var states = new ConcurrentDictionary<string, string>(new[] {
-    new KeyValuePair<string,string>("Lamp", "OFF"), new("Socket", "ON"), new("Dimmer", "37"), new("Blind", "50") });
+    new KeyValuePair<string,string>("Lamp", "OFF"), new("Socket", "ON"), new("Dimmer", "37"), new("Blind", "50"), new("AllBlinds", "25") });
 var commands = new ConcurrentQueue<(string Name, string Command)>();
 var iconRequests = new ConcurrentQueue<(string Category, string State)>();
 var sockets = new ConcurrentDictionary<int, WebSocket>();
@@ -77,7 +77,8 @@ server.MapGet("/rest/items", async context =>
     Interlocked.Increment(ref restRequests);
     var data = new JArray(states.OrderBy(p => p.Key).Select(p => new JObject
     {
-        ["name"] = p.Key, ["type"] = p.Key == "Dimmer" ? "Dimmer" : p.Key == "Blind" ? "Rollershutter" : "Switch",
+        ["name"] = p.Key, ["type"] = p.Key == "AllBlinds" ? "Group" : p.Key == "Dimmer" ? "Dimmer" : p.Key == "Blind" ? "Rollershutter" : "Switch",
+        ["groupType"] = p.Key == "AllBlinds" ? "Rollershutter" : null,
         ["label"] = p.Key, ["category"] = p.Key == "Socket" ? "poweroutlet" : "light",
         ["state"] = p.Value, ["groupNames"] = new JArray("Others")
     })).ToString();
@@ -167,11 +168,17 @@ async Task Push(string json, bool fragmented = false)
 Console.WriteLine("Local integration server ready.");
 using var service = new OpenHABService();
 var notifications = new ConcurrentQueue<OpenHABEventArgs>();
+var catalogNotifications = 0;
+service.CatalogChanged += (_, _) => Interlocked.Increment(ref catalogNotifications);
 service.ItemChanged += (_, e) => notifications.Enqueue(e);
 await service.ConfigureAsync(address, "test-token");
-await Until(() => service.Items.Count() == 4 && service.IsWebSocketConnected && heartbeats > 0, "REST snapshot, authenticated WS and heartbeat");
+await Until(() => service.Items.Count() == 5 && service.IsWebSocketConnected && heartbeats > 0, "REST snapshot, authenticated WS and heartbeat");
+Check(service.Rollershutters.Select(i => i.Name).OrderBy(n => n).SequenceEqual(new[] { "AllBlinds", "Blind" }), "rollershutter selection includes typed groups and individual items");
 await Until(() => restRequests >= 2, "snapshot reconciled after WebSocket connection");
 Check(service.GetStateOfItem("Lamp") == "OFF" && authRequests >= 2, "initial confirmed state");
+var catalogBeforeStateRefresh = catalogNotifications;
+await service.RefreshItemsAsync();
+Check(catalogNotifications == catalogBeforeStateRefresh, "unchanged catalog does not rebuild editor lists on state reconciliation");
 
 states["Lamp"] = "ON";
 await Push(Event("Lamp", "ON"), true);
@@ -192,6 +199,15 @@ await service.SendCommandAsync("Lamp", "OFF");
 foreach (var command in new[] { "UP", "STOP", "DOWN" }) await service.SendCommandAsync("Blind", command);
 Check(commands.Any(c => c == ("Lamp", "OFF")) && commands.Where(c => c.Name == "Blind").Select(c => c.Command).SequenceEqual(new[] { "UP", "STOP", "DOWN" }), "switch and shutter commands reach correct REST endpoint");
 Check(service.GetStateOfItem("Lamp") == "ON" && service.GetStateOfItem("Blind") == "50", "commands never overwrite confirmed physical states");
+foreach (var pair in new[] { ("0", "100"), ("OFF", "100"), ("37", "0"), ("100", "0"), ("ON", "0") })
+{
+    states["Dimmer"] = pair.Item1;
+    await service.RefreshItemsAsync();
+    await service.SendCommandAsync("Dimmer", OpenHABService.DimmerToggleCommand(service.GetStateOfItem("Dimmer"))!);
+    Check(commands.Last() == ("Dimmer", pair.Item2), "dimmer state " + pair.Item1 + " sends explicit " + pair.Item2);
+}
+Check(OpenHABService.DimmerToggleCommand("UNDEF") == null && OpenHABService.DimmerToggleCommand("NULL") == null, "unknown dimmer states do not send a guessed command");
+states["Dimmer"] = "62";
 failCommands = true;
 try { await service.SendCommandAsync("Lamp", "OFF"); throw new Exception("Expected HTTP failure"); }
 catch (HttpRequestException) { Check(service.GetStateOfItem("Lamp") == "ON", "failed command preserves confirmed state"); }

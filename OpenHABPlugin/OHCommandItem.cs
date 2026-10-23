@@ -13,6 +13,9 @@ namespace Loupedeck.OpenHABPluginNG
         /// Item type
         /// </summary>
         public String? Type { get; set; }
+        /// <summary>Base type of a commandable Group item.</summary>
+        public String? GroupType { get; set; }
+        public String? EffectiveType => Type == "Group" ? GroupType : Type;
         /// <summary>
         /// Label
         /// </summary>

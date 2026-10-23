@@ -6,14 +6,18 @@ namespace Loupedeck.OpenHABPluginNG.Actions
         private readonly string _icon;
         public SwitchItem() : this("Switch (automatic icon)", "") { }
         protected SwitchItem(string title, string icon) : base(title, "Switches") { _icon = icon; }
-        protected override PluginProfileActionData GetProfileActionData() => ItemPresentation.Tree("Select switch", Service.Switches);
-        protected override async void RunCommand(string parameter)
+        protected override System.Collections.Generic.IEnumerable<OpenHABCommandItem> AvailableItems => Service.Switches;
+        protected override bool RunCommand(ActionEditorActionParameters parameters)
         {
+            var parameter = ItemName(parameters);
             var state = Service.GetStateOfItem(parameter);
-            if (state == "ON" || state == "OFF") await Owner.ExecuteAsync(parameter, state == "ON" ? "OFF" : "ON");
+            if (state != "ON" && state != "OFF") return false;
+            _ = Owner.ExecuteAsync(parameter, state == "ON" ? "OFF" : "ON");
+            return true;
         }
-        protected override BitmapImage GetCommandImage(string parameter, PluginImageSize size)
+        protected override BitmapImage GetCommandImage(ActionEditorActionParameters parameters, int width, int height)
         {
+            var parameter = ItemName(parameters);
             var item = Service.GetItem(parameter);
             var category = (item?.Category ?? "").ToLowerInvariant();
             var icon = _icon;
@@ -22,7 +26,7 @@ namespace Loupedeck.OpenHABPluginNG.Actions
                     category.Contains("socket") || category.Contains("outlet") || category.Contains("poweroutlet") ? "socket" : "switch";
             var value = item?.State == "ON" ? "AN" : item?.State == "OFF" ? "AUS" : "—";
             var categoryOverride = _icon == "lamp" ? "light" : _icon == "socket" ? "socket" : null;
-            return ItemPresentation.Render(size, Service.GetItemLabel(parameter), value, icon, item?.State == "ON",
+            return ItemPresentation.Render(width, height, item?.Label ?? "Select item", value, icon, item?.State == "ON",
                 Service.GetCachedIconSvg(parameter, categoryOverride));
         }
     }

@@ -1,5 +1,18 @@
 # ChangeLog
 
+## 2026-10-23 – Correct item selection and host rendering
+
+- Replaced legacy tree profile actions with SDK Action Editor controls carrying explicit item parameters into rendering and execution. Internal profile IDs are no longer treated as OpenHAB item names. Existing item-action assignments must be removed and assigned again once; URL and token configuration remain intact.
+- Added an optional group filter with an All groups entry. Item catalogs refresh the selectors independently of state/icon updates. Included commandable typed groups, such as `Group:Rollershutter`, in the corresponding item selections.
+- Updated all visible action instances when confirmed states or cached icons change. Unknown items display a selection prompt rather than a raw identifier.
+- Added a dedicated Dimmer ON/OFF (0/100%) touch action. It and the dimmer dial press send `100` for 0 %, or `0` for any confirmed value above 0 %. Unknown states do not trigger a guessed command.
+- Added SDK Action Editor display names and responsive bitmap layouts for square keys and short, wide dial displays, including item labels and percentage values.
+- Explicitly rasterized SVGs with the host SDK before drawing. This avoids the implicit monochrome recoloring that removed original OpenHAB/F7 colors. Cached up to 128 finished raster images by size, caption, value, symbol, active state, and SVG hash. Each host request receives a separate image object.
+- Extended fallback handling to cover SVG rasterization failures. The red F7 STOP symbol and original server colors are preserved.
+- Replaced the ambiguous REST / OFFLINE caption with LIVE, REST, connection progress, and distinct HTTP/TLS/timeout errors.
+- Validation: local REST/WebSocket integration tests passed, including typed-group selection and explicit dimmer commands. Tests against the installed real SDK passed for selector options, item captions, shutter commands, dimmer button/dial behavior, 90×90/60×60/160×40 images, state-dependent output, cached rendering, red STOP, server SVG colors, and malformed-SVG fallback. No physical devices were operated.
+- Remaining environment issue: a standalone .NET 10 HTTPS icon probe fails with `AppleCrypto: bad certificate format`, while curl retrieves the same icon with certificate verification enabled. Live icon retrieval and authenticated item discovery in the actual host cannot be claimed as verified. Certificate validation has not been bypassed. Online NuGet vulnerability metadata was also unavailable during validation; builds can use the local dependency cache.
+
 ## 2026-10-23 – Use the installed .NET 10 host API
 
 - The plugin and integration tests now target `net10.0`, matching the `PluginApi.dll` shipped with the installed Logi Plugin Service. The installed API references System.Runtime 10.0 and cannot be compiled against the previous .NET 8 target (CS1705).

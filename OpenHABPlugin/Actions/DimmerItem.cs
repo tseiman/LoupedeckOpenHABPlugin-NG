@@ -5,7 +5,7 @@ using System.Threading;
 
 namespace Loupedeck.OpenHABPluginNG.Actions
 {
-    public class DimmerItem : PluginDynamicAdjustment
+    public class DimmerItem : ActionEditorAdjustment
     {
         private OpenHABPlugin Owner => (OpenHABPlugin)this.Plugin;
         private OpenHABService Service => Owner.OHService;
@@ -18,23 +18,33 @@ namespace Loupedeck.OpenHABPluginNG.Actions
         private readonly ConcurrentDictionary<string, Pending> _pending = new ConcurrentDictionary<string, Pending>();
         public DimmerItem() : base(true)
         {
+            this.Name = "DimmerItem";
             this.DisplayName = "Dimmer (%)"; this.GroupName = "Lights"; this.IsWidget = true;
-            this.MakeProfileAction("tree;Select dimmer:");
+            ItemEditor.Configure(this.ActionEditor, () => Service.Dimmer);
         }
         protected override bool OnLoad()
         {
-            var result = base.OnLoad(); Service.ItemChanged += Changed; return result;
+            var result = base.OnLoad(); Service.ItemChanged += Changed; Service.CatalogChanged += CatalogChanged; return result;
         }
         protected override bool OnUnload()
         {
-            Service.ItemChanged -= Changed; return base.OnUnload();
+            Service.ItemChanged -= Changed; Service.CatalogChanged -= CatalogChanged; return base.OnUnload();
         }
         private void Changed(object sender, OpenHABEventArgs e)
         {
-            this.AdjustmentValueChanged(e.Link); this.ActionImageChanged(e.Link);
+            this.AdjustmentValueChanged(); this.ActionImageChanged();
         }
-        protected override PluginProfileActionData GetProfileActionData() => ItemPresentation.Tree("Select dimmer", Service.Dimmer);
-        protected override async void ApplyAdjustment(string parameter, int difference)
+        private void CatalogChanged(object sender, EventArgs e)
+        { this.ActionEditor.ListboxItemsChanged("Group"); this.ActionEditor.ListboxItemsChanged("Item"); }
+        private static string ItemName(ActionEditorActionParameters parameters) => parameters.GetString("Item", "");
+        protected override bool ApplyAdjustment(ActionEditorActionParameters parameters, int difference)
+        {
+            var parameter = ItemName(parameters);
+            if (Service.GetItem(parameter) == null) return false;
+            _ = AdjustAsync(parameter, difference);
+            return true;
+        }
+        private async System.Threading.Tasks.Task AdjustAsync(string parameter, int difference)
         {
             var pending = _pending.GetOrAdd(parameter, _ => new Pending());
             await pending.Gate.WaitAsync();
@@ -52,18 +62,21 @@ namespace Loupedeck.OpenHABPluginNG.Actions
             catch (Exception ex) { Console.WriteLine("[OpenHAB NG] Dimmer failed: " + ex.GetType().Name); }
             finally { pending.Gate.Release(); }
         }
-        protected override async void RunCommand(string parameter)
+        protected override bool RunCommand(ActionEditorActionParameters parameters)
         {
+            var parameter = ItemName(parameters);
             _pending.TryRemove(parameter, out _);
-            var state = Service.GetStateOfItem(parameter);
-            var value = state == "ON" ? 100 : state == "OFF" ? 0 : OpenHABService.ExtractNumericalValue(state);
-            if (!double.IsNaN(value)) await Owner.ExecuteAsync(parameter, value > 0 ? "OFF" : "ON");
+            var command = OpenHABService.DimmerToggleCommand(Service.GetStateOfItem(parameter));
+            if (command == null) return false;
+            _ = Owner.ExecuteAsync(parameter, command);
+            return true;
         }
-        protected override string GetAdjustmentValue(string parameter) => OpenHABService.FormatPercent(Service.GetStateOfItem(parameter));
-        protected override BitmapImage GetCommandImage(string parameter, PluginImageSize size) => Image(parameter, size);
-        protected override BitmapImage GetAdjustmentImage(string parameter, PluginImageSize size) => Image(parameter, size);
-        private BitmapImage Image(string parameter, PluginImageSize size) => ItemPresentation.Render(size,
-            Service.GetItemLabel(parameter), GetAdjustmentValue(parameter), "dimmer",
+        protected override string GetAdjustmentDisplayName(ActionEditorActionParameters parameters) => Service.GetItem(ItemName(parameters))?.Label ?? "Select dimmer";
+        protected override string GetCommandDisplayName(ActionEditorActionParameters parameters) => GetAdjustmentDisplayName(parameters);
+        protected override BitmapImage GetCommandImage(ActionEditorActionParameters parameters, int width, int height) => Image(ItemName(parameters), width, height);
+        protected override BitmapImage GetAdjustmentImage(ActionEditorActionParameters parameters, int width, int height) => Image(ItemName(parameters), width, height);
+        private BitmapImage Image(string parameter, int width, int height) => ItemPresentation.Render(width, height,
+            Service.GetItem(parameter)?.Label ?? "Select dimmer", OpenHABService.FormatPercent(Service.GetStateOfItem(parameter)), "dimmer",
             OpenHABService.ExtractNumericalValue(Service.GetStateOfItem(parameter)) > 0 || Service.GetStateOfItem(parameter) == "ON",
             Service.GetCachedIconSvg(parameter, string.IsNullOrWhiteSpace(Service.GetItem(parameter)?.Category) ? "light" : Service.GetItem(parameter).Category));
     }
