@@ -194,12 +194,31 @@ states["Dimmer"] = "62";
 await Push(Event("Dimmer", "62", "ItemStateChangedEvent"));
 await Until(() => service.GetStateOfItem("Dimmer") == "62", "malformed event ignored; statechanged event handled");
 Check(!service.ProcessEvent(Event("Unknown", "ON")), "unrelated item ignored");
-Check(!service.ProcessEvent(new JObject { ["type"] = "ItemCommandEvent", ["topic"] = "openhab/items/Blind/command", ["payload"] = "{\"value\":\"UP\"}" }.ToString()), "command events do not masquerade as states");
+Check(service.ProcessEvent(new JObject { ["type"] = "ItemCommandEvent", ["topic"] = "openhab/items/Blind/command", ["payload"] = "{\"value\":\"UP\"}" }.ToString()), "external shutter commands update direction");
+Check(service.GetRollershutterDirection("Blind") == RollershutterDirection.Up && service.GetStateOfItem("Blind") == "50", "command direction is separate from physical position");
 
 await service.SendCommandAsync("Lamp", "OFF");
 foreach (var command in new[] { "UP", "STOP", "DOWN" }) await service.SendCommandAsync("Blind", command);
 Check(commands.Any(c => c == ("Lamp", "OFF")) && commands.Where(c => c.Name == "Blind").Select(c => c.Command).SequenceEqual(new[] { "UP", "STOP", "DOWN" }), "switch and shutter commands reach correct REST endpoint");
 Check(service.GetStateOfItem("Lamp") == "ON" && service.GetStateOfItem("Blind") == "50", "commands never overwrite confirmed physical states");
+await service.SendCommandAsync("Blind", "STOP");
+foreach (var step in new[] { (RollershutterDirection.Up, "UP"), (RollershutterDirection.Up, "STOP"), (RollershutterDirection.Down, "DOWN"), (RollershutterDirection.Up, "UP"), (RollershutterDirection.Down, "DOWN"), (RollershutterDirection.Down, "STOP") })
+{
+    await service.ActivateRollershutterAsync("Blind", step.Item1);
+    Check(commands.Last() == ("Blind", step.Item2), "compact shutter sends " + step.Item2);
+    Check(service.GetRollershutterDirection("Blind") == (step.Item2 == "STOP" ? RollershutterDirection.Stopped : step.Item1), "compact direction shared by both keys");
+    Check(service.GetRollershutterDirection("AllBlinds") == RollershutterDirection.Stopped, "other shutter independent");
+}
+await service.ActivateRollershutterAsync("Blind", RollershutterDirection.Up);
+service.ProcessEvent(Event("Blind", "0"));
+Check(service.GetRollershutterDirection("Blind") == RollershutterDirection.Stopped, "fully open resets UP button");
+await service.ActivateRollershutterAsync("Blind", RollershutterDirection.Down);
+service.ProcessEvent(Event("Blind", "100"));
+Check(service.GetRollershutterDirection("Blind") == RollershutterDirection.Stopped, "fully closed resets DOWN button");
+failCommands = true;
+try { await service.ActivateRollershutterAsync("Blind", RollershutterDirection.Up); throw new Exception("Expected failure"); }
+catch (HttpRequestException) { Check(service.GetRollershutterDirection("Blind") == RollershutterDirection.Stopped, "failed compact command preserves direction"); }
+failCommands = false;
 foreach (var pair in new[] { ("0", "100"), ("OFF", "100"), ("37", "0"), ("100", "0"), ("ON", "0") })
 {
     states["Dimmer"] = pair.Item1;

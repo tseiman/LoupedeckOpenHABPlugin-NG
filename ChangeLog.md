@@ -1,5 +1,12 @@
 # ChangeLog
 
+## 2026-10-25 – Compact rollershutter controls
+
+- Added independent AUF/STOP and AB/STOP actions alongside the existing three-key controls. The active direction shows the red STOP square; pressing it stops, while pressing the opposite key reverses direction in either direction.
+- Shared direction tracking by item updates every assigned key from successful commands and incoming WebSocket command events. Confirmed position remains separate; matching endpoints reset the active direction. Failed commands preserve direction, and per-item serialization handles repeated presses.
+- Documented command tracking and its limitations when bindings provide position only. Preserved existing user changes to switch colors.
+- Validation: Release build, host SDK selector/rendering tests, and local REST/WebSocket integration tests cover both reversals, STOP toggling, independent items, endpoints, and failed commands. No physical devices were operated.
+
 ## 2026-10-23 – Heading-free dimmer images
 
 - Removed dimmer headings entirely on keys and dial displays, including the dimmer ON/OFF action. Freed the caption area for the centered icon, reduced side padding, and increased the percentage font size while retaining width-aware fitting.

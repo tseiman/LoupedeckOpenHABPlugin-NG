@@ -43,7 +43,7 @@ async Task Run()
     typeof(OpenHABService).GetField("_baseUri", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(service, new Uri("http://openhab.test/"));
     await service.RefreshItemsAsync();
     Check(service.Dimmer.Select(i => i.Name).OrderBy(n => n).SequenceEqual(new[] { "Brightness", "Dimmer" }), "numeric brightness controls are included, sensors and read-only values excluded");
-    var actions = new ActionEditorAction[] { new SwitchItem(), new LampItem(), new SocketItem(), new DimmerItem(), new DimmerSwitchItem(), new RollershutterUp(), new RollershutterStop(), new RollershutterDown(), new LabelItem() };
+    var actions = new ActionEditorAction[] { new SwitchItem(), new LampItem(), new SocketItem(), new DimmerItem(), new DimmerSwitchItem(), new RollershutterUp(), new RollershutterStop(), new RollershutterDown(), new CompactRollershutterUp(), new CompactRollershutterDown(), new LabelItem() };
     foreach (var action in actions) typeof(ActionEditorAction).GetProperty("Plugin")!.SetValue(action, plugin);
     // Use the names actually exported by the SDK, as the host does. Its constructors
     // normalize the initial letter; hand-written "Group"/"Item" requests hid a regression.
@@ -80,6 +80,21 @@ async Task Run()
     Check(!lampOn.ToArray().SequenceEqual(lampOff.ToArray()), "configured lamp action changes its image with the confirmed state");
     foreach (var action in actions.OfType<RollershutterItem>()) Call(action, "RunCommand", Parameters("Blind"));
     Check(handler.Commands.Select(c => c.Command).SequenceEqual(new[] { "UP", "STOP", "DOWN" }), "SDK shutter actions send their own commands to the selected item");
+    var compactUp = actions.OfType<CompactRollershutterUp>().Single();
+    var compactDown = actions.OfType<CompactRollershutterDown>().Single();
+    await service.SendCommandAsync("Blind", "STOP");
+    using var idleUp = (BitmapImage)Call(compactUp, "GetCommandImage", Parameters("Blind"), 90, 90);
+    using var idleDown = (BitmapImage)Call(compactDown, "GetCommandImage", Parameters("Blind"), 90, 90);
+    Call(compactUp, "RunCommand", Parameters("Blind"));
+    using var activeUp = (BitmapImage)Call(compactUp, "GetCommandImage", Parameters("Blind"), 90, 90);
+    Check(HasColor(activeUp, 255, 69, 69) && !idleUp.ToArray().SequenceEqual(activeUp.ToArray()), "compact UP renders red STOP after pressing");
+    Call(compactDown, "RunCommand", Parameters("Blind"));
+    using var reversedUp = (BitmapImage)Call(compactUp, "GetCommandImage", Parameters("Blind"), 90, 90);
+    using var activeDown = (BitmapImage)Call(compactDown, "GetCommandImage", Parameters("Blind"), 90, 90);
+    Check(idleUp.ToArray().SequenceEqual(reversedUp.ToArray()) && HasColor(activeDown, 255, 69, 69), "reversal moves red STOP from UP to DOWN");
+    Call(compactDown, "RunCommand", Parameters("Blind"));
+    using var stoppedDown = (BitmapImage)Call(compactDown, "GetCommandImage", Parameters("Blind"), 90, 90);
+    Check(idleDown.ToArray().SequenceEqual(stoppedDown.ToArray()) && handler.Commands.Last().Command == "STOP", "compact second press sends STOP and restores arrow");
     foreach (var source in new[] { "0", "36", "100" })
     {
         handler.DimmerState = source;

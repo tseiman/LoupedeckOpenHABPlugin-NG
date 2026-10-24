@@ -17,7 +17,7 @@ using Newtonsoft.Json.Linq;
 namespace Loupedeck.OpenHABPluginNG
 {
     /// <summary>One connection session; only confirmed server states enter the cache.</summary>
-    public sealed class OpenHABService : IDisposable
+    public sealed partial class OpenHABService : IDisposable
     {
         private readonly object _sync = new object();
         private readonly SemaphoreSlim _lifecycle = new SemaphoreSlim(1, 1);
@@ -136,12 +136,15 @@ namespace Loupedeck.OpenHABPluginNG
                             ReadOnly = (bool?)json["stateDescription"]?["readOnly"] ?? false
                         };
                         next[name] = item;
+                        var directionChanged = ApplyRollershutterStateLocked(item, state, before);
                         if (previous == null || previous.Label != item.Label || previous.Group != item.Group || previous.EffectiveType != item.EffectiveType || previous.IsDimmer != item.IsDimmer) catalogChanged = true;
-                        if (previous == null || previous.State != state || previous.Label != item.Label || previous.Category != item.Category || previous.Group != item.Group || previous.EffectiveType != item.EffectiveType || previous.IsDimmer != item.IsDimmer) changed.Add(item);
+                        if (directionChanged || previous == null || previous.State != state || previous.Label != item.Label || previous.Category != item.Category || previous.Group != item.Group || previous.EffectiveType != item.EffectiveType || previous.IsDimmer != item.IsDimmer) changed.Add(item);
                     }
                     foreach (var removed in _items.Keys.Except(next.Keys))
                     {
                         catalogChanged = true;
+                        _shutterDirections.Remove(removed);
+                        _shutterCommandVersions.Remove(removed);
                         changed.Add(new OpenHABCommandItem { Name = removed, State = "NULL" });
                     }
                     _items = next;
@@ -250,13 +253,14 @@ namespace Loupedeck.OpenHABPluginNG
             {
                 var envelope = JObject.Parse(message);
                 var type = (string?)envelope["type"];
-                if (type != "ItemStateEvent" && type != "ItemStateChangedEvent") return false;
+                if (type != "ItemStateEvent" && type != "ItemStateChangedEvent" && type != "ItemCommandEvent") return false;
                 var parts = ((string?)envelope["topic"] ?? "").Split('/');
-                if (parts.Length != 4 || parts[0] != "openhab" || parts[1] != "items" || (parts[3] != "state" && parts[3] != "statechanged")) return false;
+                if (parts.Length != 4 || parts[0] != "openhab" || parts[1] != "items" ||
+                    (type == "ItemCommandEvent" ? parts[3] != "command" : parts[3] != "state" && parts[3] != "statechanged")) return false;
                 var raw = envelope["payload"];
                 var payload = raw is JObject obj ? obj : JObject.Parse(raw?.ToString() ?? "{}");
                 var value = (string?)payload["value"];
-                return value != null && UpdateState(parts[2], value);
+                return value != null && (type == "ItemCommandEvent" ? RecordRollershutterCommand(parts[2], value) : UpdateState(parts[2], value));
             }
             catch (Exception ex) when (ex is JsonException || ex is ArgumentException || ex is InvalidCastException)
             { Log("Ignored malformed WebSocket event."); return false; }
@@ -268,7 +272,8 @@ namespace Loupedeck.OpenHABPluginNG
             {
                 if (!_items.TryGetValue(name, out item)) return false;
                 _versions[name] = ++_revision;
-                if (item.State == state) return true;
+                var directionChanged = ApplyRollershutterStateLocked(item, state);
+                if (item.State == state && !directionChanged) return true;
                 item.State = state;
             }
             Notify(item); return true;
@@ -300,13 +305,18 @@ namespace Loupedeck.OpenHABPluginNG
         public async Task SendCommandAsync(string parameter, string command)
         {
             var item = GetItem(parameter) ?? throw new ArgumentException("Unknown item.");
-            var client = _http ?? throw new InvalidOperationException("Configure the server first.");
             var ct = _stop?.Token ?? default;
+            await PostItemCommandAsync(item, command, ct).ConfigureAwait(false);
+            // Commands (UP/STOP/ON) are not confirmed position or switch states.
+            await RefreshItemsAsync(ct).ConfigureAwait(false);
+        }
+        private async Task PostItemCommandAsync(OpenHABCommandItem item, string command, CancellationToken ct)
+        {
+            var client = _http ?? throw new InvalidOperationException("Configure the server first.");
             using var body = new StringContent(command, Encoding.UTF8, "text/plain");
             using var response = await client.PostAsync(item.Link, body, ct).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
-            // Commands (UP/STOP/ON) are not confirmed states.
-            await RefreshItemsAsync(ct).ConfigureAwait(false);
+            if (ReferenceEquals(client, _http) && item.Name != null) RecordRollershutterCommand(item.Name, command);
         }
         private void Notify(OpenHABCommandItem item)
         {
@@ -362,6 +372,7 @@ namespace Loupedeck.OpenHABPluginNG
             _stop?.Dispose(); _stop = null; _worker = null;
             SetConnected(false);
             SetRestStatus("DISCONNECTED");
+            ResetRollershutterDirections();
         }
         public void Dispose() => StopAsync().GetAwaiter().GetResult();
     }

@@ -11,5 +11,6 @@
     <Compile Include="../OpenHABPlugin/OpenHABIconCache.cs" Link="OpenHABIconCache.cs" />
     <Compile Include="../OpenHABPlugin/OpenHABEventArgs.cs" Link="OpenHABEventArgs.cs" />
     <Compile Include="../OpenHABPlugin/OHCommandItem.cs" Link="OHCommandItem.cs" />
+    <Compile Include="../OpenHABPlugin/RollershutterControls.cs" Link="RollershutterControls.cs" />
   </ItemGroup>
 </Project>

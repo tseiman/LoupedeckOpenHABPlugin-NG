@@ -154,6 +154,10 @@ The dimmer selector includes native `Dimmer` items and writable `Number` / `Numb
 
 For **rollershutters**, arrange three keys vertically: **Rollladen AUF** (UP), **Rollladen STOP** (STOP), and **Rollladen AB** (DOWN), selecting the same item on each key. These are three independently placeable widgets; no predefined three-cell profile layout is created automatically. The symbols are embedded original Framework7 SVGs: UP uses the gray `arrowtriangle_up`, STOP the red `stop` square, and DOWN the gray `arrowtriangle_down`, matching the web UI reference. No network request or installed F7 font is required. Users arrange the keys vertically in their profiles. In OpenHAB, 0 % means fully open and 100 % fully closed.
 
+For a compact two-key layout, select **Rollladen AUF/STOP** and **Rollladen AB/STOP** from **Rollershutters (compact)** and assign the same item to both. Pressing an arrow sends its direction and replaces that arrow with the red STOP square. Pressing that key again sends STOP. Pressing the opposite arrow reverses direction immediately and moves the STOP square to the other key. The original three-key actions remain available.
+
+Direction is shared per item across all keys and follows accepted UP/DOWN/STOP commands, including commands received through WebSocket events. Reported position remains independent: 0% resets an active UP key, and 100% resets an active DOWN key. Restarting or reconfiguring the plugin clears the tracked direction. A numeric position alone cannot confirm movement; a physical stop without a corresponding event cannot be detected, and bindings that immediately report a target endpoint can reset the key early.
+
 Selections include both individual `Rollershutter` items and commandable `Group` items whose `groupType` is `Rollershutter`. Switch and dimmer selections also include groups with the corresponding base type.
 
 **Live state** displays the current item value. OpenHAB-specific Java/printf patterns are not evaluated as C# format strings; units remain part of the raw value.
