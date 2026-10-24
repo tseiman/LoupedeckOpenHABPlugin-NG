@@ -49,7 +49,11 @@ namespace Loupedeck.OpenHABPluginNG.Actions
         private static BitmapImage Draw(int width, int height, string label, string value, string symbol, bool active, string serverSvg, bool dimmer)
         {
             using var bitmap = new BitmapBuilder(width, height);
-            var foreground = active ? new BitmapColor(0xff, 0xd1, 0x55) : new BitmapColor(0xa8, 0xb2, 0xc3);
+//            var foreground = active ? new BitmapColor(0x00, 0xff, 0x00) : new BitmapColor(0xff, 0x00, 0x00);
+	    var foreground = active 
+		? new BitmapColor(0xff, 0x58, 0x55)  // AN: Orange/Gelb #FFD155
+		: new BitmapColor(0xa8, 0xb2, 0xc3); // AUS: Grau #A8B2C3
+    
             bitmap.Clear(BitmapColor.Black);
             // Dial strips are short and wide: give their text room instead of clipping three rows.
             var compact = !dimmer && (height < 60 || width > height * 2);
