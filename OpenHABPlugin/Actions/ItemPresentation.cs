@@ -51,7 +51,7 @@ namespace Loupedeck.OpenHABPluginNG.Actions
             using var bitmap = new BitmapBuilder(width, height);
 //            var foreground = active ? new BitmapColor(0x00, 0xff, 0x00) : new BitmapColor(0xff, 0x00, 0x00);
 	    var foreground = active 
-		? new BitmapColor(0xff, 0x50, 0x50)  // AN: Orange/Gelb #FFD155
+		? new BitmapColor(0x50, 0xff, 0x50)  // AN: Orange/Gelb #FFD155
 		: new BitmapColor(0xa8, 0xb2, 0xc3); // AUS: Grau #A8B2C3
     
             bitmap.Clear(BitmapColor.Black);
