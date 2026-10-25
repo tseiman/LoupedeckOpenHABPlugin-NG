@@ -11,6 +11,7 @@ OpenHAB NG connects Loupedeck CT, Live, Live S, and Razer Stream Controller to O
 - Dimmers with percentage displays, rotary control from 0 to 100, and push-to-toggle operation.
 - Rollershutter control using three vertically arranged widgets: **UP**, **STOP**, and **DOWN**. Each displays the reported position and sends its command to the same selected `Rollershutter` item. The current action labels are **Rollladen AUF**, **Rollladen STOP**, and **Rollladen AB**.
 - Live state displays for any item and a WebSocket connection status widget.
+- A local browser configuration page for connection settings, shared movement values, and per-rollershutter feedback assignments.
 
 ## Build instructions
 
@@ -20,7 +21,7 @@ OpenHAB NG connects Loupedeck CT, Live, Live S, and Razer Stream Controller to O
 - Logi Plugin Service installed by the host application, providing its .NET 10 `PluginApi.dll`.
 - NuGet access for Newtonsoft.Json 13.0.3, or a local package source.
 
-The project is self-contained apart from its host SDK and NuGet dependencies. No other plugin checkout is required.
+The browser UI uses a pinned Git submodule of [LoupedeckWebConfigLib](https://github.com/tseiman/LoupedeckWebConfigLib). The project builds its sources in an isolated .NET 10 assembly; no separate .NET 8 SDK/runtime or other plugin checkout is required.
 
 ### Host API
 
@@ -43,6 +44,12 @@ From the directory containing your checkout:
 
 ```bash
 cd LoupedeckOpenHABPlugin-NG
+```
+
+Initialize the pinned configuration-library source after cloning (also required when updating an existing checkout):
+
+```bash
+git submodule update --init --recursive
 ```
 
 With the .NET 10 SDK and host application installed, build with automatic package restoration:
@@ -79,6 +86,7 @@ dotnet build OpenHABPlugin.sln --configuration Release --no-restore
 bin/Release/
   mac/                         # win/ on Windows
     OpenHABPluginNG.dll
+    OpenHABPluginNG.WebConfig.dll
     OpenHABPluginNG.deps.json
     Newtonsoft.Json.dll
     licenses/
@@ -153,6 +161,18 @@ The dimmer selector includes native `Dimmer` items and writable `Number` / `Numb
 **Dimmer ON/OFF (0/100%)** is a separate touch-button action for dimmer items. A confirmed state of 0 % sends `100`; any confirmed value above 0 % sends `0`. Pressing the dimmer dial follows the same rule. Unknown states do not send a command. Both square button images and short, wide dial images include the item label and percentage.
 
 For **rollershutters**, arrange three keys vertically: **Rollladen AUF** (UP), **Rollladen STOP** (STOP), and **Rollladen AB** (DOWN), selecting the same item on each key. These are three independently placeable widgets; no predefined three-cell profile layout is created automatically. The symbols are embedded original Framework7 SVGs: UP uses the gray `arrowtriangle_up`, STOP the red `stop` square, and DOWN the gray `arrowtriangle_down`, matching the web UI reference. No network request or installed F7 font is required. Users arrange the keys vertically in their profiles. In OpenHAB, 0 % means fully open and 100 % fully closed.
+
+### Browser configuration
+
+After restarting the plugin host to load this version, place **Settings → Open Configuration** on a spare key and press it. A temporary configuration server opens in the default browser, bound only to `127.0.0.1`. It belongs to this plugin instance and does not share the library's static global service with other plugins.
+
+The page provides the server URL, optional API-token replacement/removal, global stopped/up/down values, and a table of all rollershutter items with their movement feedback assignments. Number and String items outside the semantic model are included. **Automatic** reuses the MainUI widget's `config.stateItem`; selecting an item creates a plugin-only override without changing anything in OpenHAB. A per-key Loupedeck feedback selection has the highest priority, followed by the browser override and then the MainUI assignment. Existing assignments remain intact until saved.
+
+The saved API token is never sent back to the page or its configuration API. Leaving the replacement field blank keeps it; the explicit clear checkbox removes it. Configuration saves preserve unrelated fields in the existing `config.json` and replace that file atomically. Feedback changes take effect immediately; changing connection credentials restarts only the plugin's connection session.
+
+**Save** persists changes and keeps the page open. **Reset** discards unsaved edits and restores the page's loaded/saved snapshot. **Save & Close** saves and stops the temporary server, then requests that the browser close the tab. Browsers may refuse to close a tab that was not opened by JavaScript; close such a tab manually. Closing the last connected page also stops the server after a short grace period. Press **Open Configuration** again for a fresh session or to refresh the catalog and displayed state snapshot.
+
+This page has no device command buttons or device command endpoints. Its state column is a read-only snapshot, not a live device test. Use it to configure feedback without operating devices. Existing URL, token, and movement-value settings actions remain available.
 
 For a compact two-key layout, select **Rollladen AUF/STOP** and **Rollladen AB/STOP** from **Rollershutters (compact)** and assign the same rollershutter item to both. The original three-key actions remain available.
 

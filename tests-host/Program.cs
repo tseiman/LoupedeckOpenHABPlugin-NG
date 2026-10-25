@@ -9,7 +9,7 @@ using Newtonsoft.Json.Linq;
 
 // Load the installed host's own rendering dependencies, including its macOS bindings.
 // Never copy these binaries into the plugin package.
-var host = args.FirstOrDefault() ?? (OperatingSystem.IsMacOS()
+var host = args.FirstOrDefault(a => !a.StartsWith("--")) ?? (OperatingSystem.IsMacOS()
     ? "/Applications/Utilities/LogiPluginService.app/Contents/MonoBundle"
     : "C:/Program Files/Logi/LogiPluginService");
 var arch = RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "osx-arm64" : "osx-x64";
@@ -239,7 +239,59 @@ async Task Run()
     using var malformed = Render("36 %", "lamp", true, "<svg broken");
     Check(malformed.Width == 90, "malformed server SVG uses local fallback");
     on.SaveToFile(Path.Combine(output, "lamp-on.png")); off.SaveToFile(Path.Combine(output, "lamp-off.png")); stop.SaveToFile(Path.Combine(output, "stop.png"));
+    await TestWebConfiguration(plugin, service, handler, args.Contains("--web-config-preview"));
     Console.WriteLine("All host SDK tests passed. Previews: " + output);
+}
+
+static async Task TestWebConfiguration(OpenHABPlugin plugin, OpenHABService service, TestApi handler, bool preview)
+{
+    var path = Path.Combine(Path.GetTempPath(), "openhab-web-test-" + Guid.NewGuid().ToString("N"), "config.json");
+    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+    typeof(OpenHABPlugin).GetProperty("ConfigurationFile", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(plugin, path);
+    typeof(OpenHABPlugin).GetField("_url", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(plugin, "http://openhab.test/");
+    const string secret = "fake-token-not-for-browser";
+    typeof(OpenHABPlugin).GetField("_token", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(plugin, secret);
+    File.WriteAllText(path, new JObject { ["url"] = "http://openhab.test/", ["token"] = secret, ["futureSetting"] = "preserved" }.ToString());
+    using var ui = new OpenHABWebConfiguration(service,
+        () => JObject.Parse(File.ReadAllText(path)),
+        change => typeof(OpenHABPlugin).GetMethod("ApplyWebConfiguration", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(plugin, new object[] { change }), false);
+    try
+    {
+        var commandCount = handler.Commands.Count;
+        var uri = ui.Open();
+        using var client = new HttpClient();
+        var html = await client.GetStringAsync(uri);
+        var initial = JObject.Parse(await client.GetStringAsync(new Uri(uri, "plugin/config")));
+        Check(!html.Contains(secret) && !initial.ToString().Contains(secret), "web page and configuration API never expose saved API token");
+        Check(html.Contains("Movement values") && html.Contains("feedback__Blind") && !html.Contains("actionCommand") && !html.Contains("arrowtriangle_up"), "web configuration provides mapping controls without device command buttons");
+        Check((await client.GetAsync(new Uri(uri, "style.css"))).IsSuccessStatusCode && (await client.GetAsync(new Uri(uri, "loupedeck-config.js"))).IsSuccessStatusCode, "isolated web assembly serves embedded CSS and JavaScript");
+        var draft = (JObject)initial.DeepClone();
+        draft["stopped"] = "IDLE"; draft["up"] = "OPENING"; draft["down"] = "CLOSING";
+        draft["feedback__Blind"] = "TextState";
+        using var response = await client.PostAsync(new Uri(uri, "plugin/config"), new StringContent(draft.ToString(), System.Text.Encoding.UTF8, "application/json"));
+        Check(response.IsSuccessStatusCode, "web settings save successfully through library callback");
+        var saved = JObject.Parse(File.ReadAllText(path));
+        Check((string)saved["token"]! == secret && (string)saved["futureSetting"]! == "preserved", "web saves preserve existing credentials and unrelated configuration");
+        Check(service.GetRollershutterFeedbackItem("Blind") == "TextState" && service.GetRollershutterDirection("Blind") == RollershutterDirection.Up, "browser item override and global mapping update live service");
+        Check((string)saved["rollershutterFeedbackAssignments"]!["Blind"]! == "TextState", "browser feedback assignment persists in existing plugin config");
+        Check(!(await client.GetStringAsync(new Uri(uri, "config"))).Contains(secret), "configuration snapshots stay token-free after saving");
+        var beforeInvalid = File.ReadAllText(path);
+        var invalid = (JObject)draft.DeepClone(); invalid["up"] = "IDLE";
+        using var rejected = await client.PostAsync(new Uri(uri, "plugin/config"), new StringContent(invalid.ToString(), System.Text.Encoding.UTF8, "application/json"));
+        Check(!rejected.IsSuccessStatusCode && File.ReadAllText(path) == beforeInvalid, "invalid global values cannot partially persist browser changes");
+        ui.Open();
+        var forged = (JObject)draft.DeepClone(); forged["session"] = "invalid";
+        using var forbidden = await client.PostAsync(new Uri(uri, "plugin/config"), new StringContent(forged.ToString(), System.Text.Encoding.UTF8, "application/json"));
+        Check(!forbidden.IsSuccessStatusCode && File.ReadAllText(path) == beforeInvalid, "configuration writes require the local browser session value");
+        ui.Open();
+        Check(handler.Commands.Count == commandCount, "all web configuration tests send zero device commands");
+        if (preview)
+        {
+            Console.WriteLine("WEB_CONFIG_PREVIEW=" + uri);
+            await Task.Delay(TimeSpan.FromMinutes(10));
+        }
+    }
+    finally { Directory.Delete(Path.GetDirectoryName(path)!, true); }
 }
 
 static bool HasColor(BitmapImage image, byte red, byte green, byte blue)

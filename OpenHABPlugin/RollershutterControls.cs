@@ -40,6 +40,14 @@ namespace Loupedeck.OpenHABPluginNG
 
     public sealed partial class OpenHABService
     {
+        private Dictionary<string, string> _feedbackAssignments = new();
+        public IReadOnlyDictionary<string, string> GetRollershutterFeedbackAssignments()
+        { lock (_sync) return new Dictionary<string, string>(_feedbackAssignments); }
+        public void SetRollershutterFeedbackAssignments(IReadOnlyDictionary<string, string> assignments)
+        {
+            lock (_sync) _feedbackAssignments = new Dictionary<string, string>(assignments);
+            foreach (var item in Rollershutters) Notify(item);
+        }
         private volatile RollershutterFeedbackValues _feedbackValues = new RollershutterFeedbackValues();
         public RollershutterFeedbackValues FeedbackValues => _feedbackValues;
         public void SetRollershutterFeedbackValues(RollershutterFeedbackValues values)
@@ -55,7 +63,12 @@ namespace Loupedeck.OpenHABPluginNG
         public string GetRollershutterFeedbackItem(string parameter, string feedbackItem = "")
         {
             if (!string.IsNullOrWhiteSpace(feedbackItem) && feedbackItem != "__auto__") return feedbackItem;
-            return GetItem(parameter)?.ShutterFeedbackItem ?? "";
+            lock (_sync)
+            {
+                var item = GetItem(parameter);
+                return item?.Name != null && _feedbackAssignments.TryGetValue(item.Name, out var mapped)
+                    ? mapped : item?.ShutterFeedbackItem ?? "";
+            }
         }
 
         public RollershutterDirection GetRollershutterDirection(string parameter, string feedbackItem = "")
