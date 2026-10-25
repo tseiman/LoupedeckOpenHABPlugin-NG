@@ -11,6 +11,7 @@ OpenHAB NG connects Loupedeck CT, Live, Live S, and Razer Stream Controller to O
 - Dimmers with percentage displays, rotary control from 0 to 100, and push-to-toggle operation.
 - Rollershutter control using three vertically arranged widgets: **UP**, **STOP**, and **DOWN**. Each displays the reported position and sends its command to the same selected `Rollershutter` item. The current action labels are **Rollladen AUF**, **Rollladen STOP**, and **Rollladen AB**.
 - Live state displays for any item and a WebSocket connection status widget.
+- A local browser configuration page for connection settings, shared movement values, and per-rollershutter feedback assignments.
 
 ## Build instructions
 
@@ -20,7 +21,7 @@ OpenHAB NG connects Loupedeck CT, Live, Live S, and Razer Stream Controller to O
 - Logi Plugin Service installed by the host application, providing its .NET 10 `PluginApi.dll`.
 - NuGet access for Newtonsoft.Json 13.0.3, or a local package source.
 
-The project is self-contained apart from its host SDK and NuGet dependencies. No other plugin checkout is required.
+The browser UI uses a pinned Git submodule of [LoupedeckWebConfigLib](https://github.com/tseiman/LoupedeckWebConfigLib). The project builds its sources in an isolated .NET 10 assembly; no separate .NET 8 SDK/runtime or other plugin checkout is required.
 
 ### Host API
 
@@ -43,6 +44,12 @@ From the directory containing your checkout:
 
 ```bash
 cd LoupedeckOpenHABPlugin-NG
+```
+
+Initialize the pinned configuration-library source after cloning (also required when updating an existing checkout):
+
+```bash
+git submodule update --init --recursive
 ```
 
 With the .NET 10 SDK and host application installed, build with automatic package restoration:
@@ -79,6 +86,7 @@ dotnet build OpenHABPlugin.sln --configuration Release --no-restore
 bin/Release/
   mac/                         # win/ on Windows
     OpenHABPluginNG.dll
+    OpenHABPluginNG.WebConfig.dll
     OpenHABPluginNG.deps.json
     Newtonsoft.Json.dll
     licenses/
@@ -154,9 +162,29 @@ The dimmer selector includes native `Dimmer` items and writable `Number` / `Numb
 
 For **rollershutters**, arrange three keys vertically: **Rollladen AUF** (UP), **Rollladen STOP** (STOP), and **Rollladen AB** (DOWN), selecting the same item on each key. These are three independently placeable widgets; no predefined three-cell profile layout is created automatically. The symbols are embedded original Framework7 SVGs: UP uses the gray `arrowtriangle_up`, STOP the red `stop` square, and DOWN the gray `arrowtriangle_down`, matching the web UI reference. No network request or installed F7 font is required. Users arrange the keys vertically in their profiles. In OpenHAB, 0 % means fully open and 100 % fully closed.
 
-For a compact two-key layout, select **Rollladen AUF/STOP** and **Rollladen AB/STOP** from **Rollershutters (compact)** and assign the same item to both. Pressing an arrow sends its direction and replaces that arrow with the red STOP square. Pressing that key again sends STOP. Pressing the opposite arrow reverses direction immediately and moves the STOP square to the other key. The original three-key actions remain available.
+### Browser configuration
 
-Direction is shared per item across all keys and follows accepted UP/DOWN/STOP commands, including commands received through WebSocket events. Reported position remains independent: 0% resets an active UP key, and 100% resets an active DOWN key. Restarting or reconfiguring the plugin clears the tracked direction. A numeric position alone cannot confirm movement; a physical stop without a corresponding event cannot be detected, and bindings that immediately report a target endpoint can reset the key early.
+After restarting the plugin host to load this version, place **Settings → Open Configuration** on a spare key and press it. A temporary configuration server opens in the default browser, bound only to `127.0.0.1`. It belongs to this plugin instance and does not share the library's static global service with other plugins.
+
+The page provides the server URL, optional API-token replacement/removal, global stopped/up/down values, and a table of all rollershutter items with their movement feedback assignments. Number and String items outside the semantic model are included. **Automatic** reuses the MainUI widget's `config.stateItem`; selecting an item creates a plugin-only override without changing anything in OpenHAB. A per-key Loupedeck feedback selection has the highest priority, followed by the browser override and then the MainUI assignment. Existing assignments remain intact until saved.
+
+The saved API token is never sent back to the page or its configuration API. Leaving the replacement field blank keeps it; the explicit clear checkbox removes it. Configuration saves preserve unrelated fields in the existing `config.json` and replace that file atomically. Feedback changes take effect immediately; changing connection credentials restarts only the plugin's connection session.
+
+**Save** persists changes and keeps the page open. **Reset** discards unsaved edits and restores the page's loaded/saved snapshot. **Save & Close** saves and stops the temporary server, then requests that the browser close the tab. Browsers may refuse to close a tab that was not opened by JavaScript; close such a tab manually. Closing the last connected page also stops the server after a short grace period. Press **Open Configuration** again for a fresh session or to refresh the catalog and displayed state snapshot.
+
+This page has no device command buttons or device command endpoints. Its state column is a read-only snapshot, not a live device test. Use it to configure feedback without operating devices. Existing URL, token, and movement-value settings actions remain available.
+
+For a compact two-key layout, select **Rollladen AUF/STOP** and **Rollladen AB/STOP** from **Rollershutters (compact)** and assign the same rollershutter item to both. The original three-key actions remain available.
+
+The compact controls automatically reuse the movement feedback assignment from the OpenHAB item's MainUI `listWidget` metadata (`config.stateItem`). No additional Loupedeck selection is needed when that widget is already configured. Alternatively, use the optional **Movement feedback** selector on each compact action to select a plain `Number` or `String` item; the list includes items outside the semantic model and is independent of the group filter. Leave it empty or choose **Automatic (OpenHAB widget assignment)** to use the server assignment. Both keys should use the same selection.
+
+Movement feedback defaults to `0` for stopped, `1` for moving up, and `2` for moving down. The mapping is configurable globally, independently of item names or widget assignments. Only the key matching the reported direction displays the red STOP square. Pressing it sends STOP; pressing the other arrow reverses direction. The icon changes when OpenHAB reports the new direction, including changes initiated by wall switches or automation. Commands and percentage endpoints never override configured feedback. Compact controls with feedback show the action caption without an unreliable percentage. Missing, invalid, or unavailable feedback displays `STATE ?` and blocks ambiguous toggle commands; the existing dedicated STOP action remains available.
+
+To change the mapping once for all compact rollershutters, place **Settings → Apply rollershutter feedback values** on a spare key. Enter the three values in **Stopped value**, **Moving up value**, and **Moving down value**, then press that key once to apply and save them globally. For example, use `STOP`, `UP`, and `DOWN` for a String feedback item. Applying this action sends no OpenHAB device command. The saved mapping remains after removing the settings key and restarting the host; editing the key's fields alone does not apply it. Use one settings key to avoid applying conflicting presets accidentally.
+
+Values are trimmed, compared without case sensitivity, and must be distinct and non-empty. `NULL` and `UNDEF` remain unknown states. The mapping is stored in the plugin's existing `config.json` as `rollershutterFeedbackValues` with `stopped`, `up`, and `down` properties; existing server URL and API token settings are preserved. A missing mapping uses 0/1/2. An invalid saved mapping is logged and falls back to those defaults. This release uses a single global mapping; installations with mixed device encodings should normalize their feedback items in OpenHAB.
+
+If no feedback item is assigned at all, existing profiles retain command tracking: direction is shared per item, follows accepted UP/DOWN/STOP commands (including WebSocket command events), and resets at the matching reported endpoint (0% for UP, 100% for DOWN). Position alone cannot confirm movement; an external stop without an event cannot be detected in this fallback mode.
 
 Selections include both individual `Rollershutter` items and commandable `Group` items whose `groupType` is `Rollershutter`. Switch and dimmer selections also include groups with the corresponding base type.
 

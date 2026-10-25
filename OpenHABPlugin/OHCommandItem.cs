@@ -18,6 +18,8 @@ namespace Loupedeck.OpenHABPluginNG
         public String? EffectiveType => Type == "Group" ? GroupType : Type;
         public String[] Tags { get; set; } = Array.Empty<String>();
         public bool ReadOnly { get; set; }
+        /// <summary>Optional movement feedback from MainUI listWidget metadata.</summary>
+        public String? ShutterFeedbackItem { get; set; }
         /// <summary>Native dimmers and explicitly tagged numeric brightness controls.</summary>
         public bool IsDimmer => !ReadOnly && (EffectiveType == "Dimmer" ||
             ((EffectiveType == "Number" || EffectiveType == "Number:Dimensionless") &&

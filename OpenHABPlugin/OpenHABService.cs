@@ -109,7 +109,7 @@ namespace Loupedeck.OpenHABPluginNG
                 int generation;
                 lock (_sync) { before = _revision; generation = _generation; }
                 var client = _http ?? throw new InvalidOperationException("Configure the server first.");
-                using var response = await client.GetAsync(new Uri(_baseUri!, "rest/items?recursive=false"), ct).ConfigureAwait(false);
+                using var response = await client.GetAsync(new Uri(_baseUri!, "rest/items?recursive=false&metadata=listWidget"), ct).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
                 var data = JArray.Parse(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
                 var changed = new List<OpenHABCommandItem>();
@@ -133,12 +133,15 @@ namespace Loupedeck.OpenHABPluginNG
                             Group = (string?)json["groupNames"]?.FirstOrDefault() ?? "Others",
                             Category = (string?)json["category"], Pattern = (string?)json["stateDescription"]?["pattern"],
                             Tags = json["tags"]?.Values<string>().Where(t => t != null).Select(t => t!).ToArray() ?? Array.Empty<string>(),
-                            ReadOnly = (bool?)json["stateDescription"]?["readOnly"] ?? false
+                            ReadOnly = (bool?)json["stateDescription"]?["readOnly"] ?? false,
+                            ShutterFeedbackItem = json["metadata"] is JObject metadata && metadata["listWidget"] is JObject widget &&
+                                widget["config"] is JObject widgetConfig && widgetConfig["stateItem"]?.Type == JTokenType.String
+                                ? (string?)widgetConfig["stateItem"] : null
                         };
                         next[name] = item;
                         var directionChanged = ApplyRollershutterStateLocked(item, state, before);
-                        if (previous == null || previous.Label != item.Label || previous.Group != item.Group || previous.EffectiveType != item.EffectiveType || previous.IsDimmer != item.IsDimmer) catalogChanged = true;
-                        if (directionChanged || previous == null || previous.State != state || previous.Label != item.Label || previous.Category != item.Category || previous.Group != item.Group || previous.EffectiveType != item.EffectiveType || previous.IsDimmer != item.IsDimmer) changed.Add(item);
+                        if (previous == null || previous.Label != item.Label || previous.Group != item.Group || previous.EffectiveType != item.EffectiveType || previous.IsDimmer != item.IsDimmer || previous.ShutterFeedbackItem != item.ShutterFeedbackItem) catalogChanged = true;
+                        if (directionChanged || previous == null || previous.State != state || previous.Label != item.Label || previous.Category != item.Category || previous.Group != item.Group || previous.EffectiveType != item.EffectiveType || previous.IsDimmer != item.IsDimmer || previous.ShutterFeedbackItem != item.ShutterFeedbackItem) changed.Add(item);
                     }
                     foreach (var removed in _items.Keys.Except(next.Keys))
                     {

@@ -1,5 +1,26 @@
 # ChangeLog
 
+## 2026-10-25 – Local browser configuration
+
+- Integrated the pinned LoupedeckWebConfigLib source as a Git submodule, built in a plugin-specific .NET 10 assembly. Added Settings → Open Configuration with a per-plugin local server, independent of the library static singleton. Embedded web assets and the MIT license are included in the build output.
+- Added connection settings, shared movement-value fields, and per-rollershutter Number/String feedback selectors. Browser overrides are stored only in this plugin, with priority below explicit per-key selections and above automatic MainUI metadata. No OpenHAB device controls are exposed.
+- Preserved existing configuration and unrelated fields, added atomic file replacement, and kept stored API tokens out of browser snapshots. Session-bound configuration writes are validated before persistence. Documented Save, Reset, Save & Close, and browser tab-closing limitations.
+- Separated intermediate build folders by project name to prevent restore/build collisions introduced by the additional project reference. Updated recursive dependency setup instructions.
+- Validation: Release solution build, real host SDK tests, local HTTP configuration tests, existing REST/WebSocket integration checks, and browser Save/Reset/Save & Close checks with simulated items. No real devices were switched.
+
+## 2026-10-25 – Global movement feedback values
+
+- Added one SDK Action Editor settings action with stopped/up/down text fields. Executing it saves the mapping for every compact rollershutter in the existing plugin configuration without sending device commands. Defaults remain 0/1/2; named String feedback states are supported too.
+- Added case-insensitive mapping validation, JSON persistence, immediate repaint after mapping changes, and rejection of duplicate, empty, NULL, or UNDEF values. Per-action feedback item overrides and automatic MainUI metadata assignment remain independent of state encoding.
+- Validated actual SDK field names, parameter decoding, text feedback, global application, JSON round trips, invalid mapping handling, selectors, rendering, and command decisions with fake endpoints. Release build and local integration checks passed; physical devices were not operated.
+
+## 2026-10-25 – Physical rollershutter movement feedback
+
+- Compact AUF/STOP and AB/STOP controls now automatically reuse the OpenHAB MainUI list-widget `stateItem` assignment. Added an optional, group-independent Number-item selector for explicit overrides, with SDK-normalized control names and catalog refresh notifications.
+- Reported 0/1/2 feedback drives both icons and STOP/reversal decisions. Commands and unreliable position endpoints cannot override physical feedback; invalid or missing configured feedback displays STATE ? and prevents guessed toggle commands. Existing profiles without feedback retain their previous behavior.
+- Requested listWidget metadata with the existing REST snapshot; WebSocket updates to the feedback item repaint the controls. Preserved user switch colors and existing action identities.
+- Validation: real SDK selector/rendering and command tests, local REST/WebSocket integration tests, and read-only verification of server-side widget assignments. No real device commands were sent.
+
 ## 2026-10-25 – Compact rollershutter controls
 
 - Added independent AUF/STOP and AB/STOP actions alongside the existing three-key controls. The active direction shows the red STOP square; pressing it stops, while pressing the opposite key reverses direction in either direction.

@@ -9,7 +9,7 @@ using Newtonsoft.Json.Linq;
 
 // Load the installed host's own rendering dependencies, including its macOS bindings.
 // Never copy these binaries into the plugin package.
-var host = args.FirstOrDefault() ?? (OperatingSystem.IsMacOS()
+var host = args.FirstOrDefault(a => !a.StartsWith("--")) ?? (OperatingSystem.IsMacOS()
     ? "/Applications/Utilities/LogiPluginService.app/Contents/MonoBundle"
     : "C:/Program Files/Logi/LogiPluginService");
 var arch = RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "osx-arm64" : "osx-x64";
@@ -95,6 +95,71 @@ async Task Run()
     Call(compactDown, "RunCommand", Parameters("Blind"));
     using var stoppedDown = (BitmapImage)Call(compactDown, "GetCommandImage", Parameters("Blind"), 90, 90);
     Check(idleDown.ToArray().SequenceEqual(stoppedDown.ToArray()) && handler.Commands.Last().Command == "STOP", "compact second press sends STOP and restores arrow");
+    handler.BlindFeedback = "BlindState";
+    await service.RefreshItemsAsync();
+    Check(service.GetRollershutterFeedbackItem("Blind") == "BlindState", "movement feedback automatically reuses OpenHAB widget metadata");
+    var feedbackOptions = (ActionEditorListboxItemsRequestedEventArgs)Call(compactUp.ActionEditor, "InvokeListboxItemsRequestedEvent", state, "feedback");
+    Check(feedbackOptions.Items.Any(i => i.Name == "__auto__") && feedbackOptions.Items.Any(i => i.Name == "BlindState") && feedbackOptions.Items.All(i => i.Name != "Lamp"), "real SDK feedback selector lists automatic mapping and ungrouped Number items");
+    void Feedback(string value) => service.ProcessEvent(new JObject { ["type"] = "ItemStateEvent", ["topic"] = "openhab/items/BlindState/state", ["payload"] = new JObject { ["value"] = value }.ToString() }.ToString());
+    Check(service.GetRollershutterDirection("Blind") == RollershutterDirection.Stopped, "reported STOP overrides last command direction");
+    await service.ActivateRollershutterAsync("Blind", RollershutterDirection.Up);
+    Check(handler.Commands.Last().Command == "UP" && service.GetRollershutterDirection("Blind") == RollershutterDirection.Stopped, "accepted command does not invent movement before feedback");
+    Feedback("1");
+    using var feedbackUp = (BitmapImage)Call(compactUp, "GetCommandImage", Parameters("Blind"), 90, 90);
+    using var feedbackDownIdle = (BitmapImage)Call(compactDown, "GetCommandImage", Parameters("Blind"), 90, 90);
+    Check(HasColor(feedbackUp, 255, 69, 69) && !HasColor(feedbackDownIdle, 255, 69, 69), "external UP feedback activates only UP STOP icon");
+    handler.BlindPosition = "0";
+    await service.RefreshItemsAsync();
+    Feedback("1");
+    Check(service.GetRollershutterDirection("Blind") == RollershutterDirection.Up, "unreliable endpoint cannot override movement feedback");
+    // Keep the fake REST feedback consistent with the next awaited refresh using manual events afterwards.
+    Call(compactUp, "RunCommand", Parameters("Blind"));
+    Check(handler.Commands.Last().Command == "STOP", "UP key sends STOP from reported UP");
+    Feedback("1");
+    Call(compactDown, "RunCommand", Parameters("Blind"));
+    Check(handler.Commands.Last().Command == "DOWN", "DOWN key reverses reported UP");
+    Feedback("2");
+    using var feedbackDown = (BitmapImage)Call(compactDown, "GetCommandImage", Parameters("Blind"), 90, 90);
+    Check(HasColor(feedbackDown, 255, 69, 69), "external DOWN feedback activates DOWN STOP icon");
+    Call(compactUp, "RunCommand", Parameters("Blind"));
+    Check(handler.Commands.Last().Command == "UP", "UP key reverses reported DOWN");
+    Check(service.GetRollershutterDirection("Blind", "ManualState") == RollershutterDirection.Down, "explicit feedback selection overrides automatic mapping");
+    var manualParameters = new ActionEditorActionParameters(new Dictionary<string, string> { ["item"] = "Blind", ["feedback"] = "ManualState" });
+    Call(compactDown, "RunCommand", manualParameters);
+    Check(handler.Commands.Last().Command == "STOP", "SDK action forwards explicit feedback selection to command decision");
+    Feedback("UNDEF");
+    var commandCount = handler.Commands.Count;
+    try { await service.ActivateRollershutterAsync("Blind", RollershutterDirection.Up); throw new Exception("Expected missing feedback"); }
+    catch (InvalidOperationException) { Check(handler.Commands.Count == commandCount, "invalid feedback blocks guessed toggle commands"); }
+    handler.BlindFeedback = "MissingState";
+    await service.RefreshItemsAsync();
+    Check(service.GetRollershutterDirection("Blind") == RollershutterDirection.Unknown, "missing configured feedback never silently falls back to command tracking");
+    var globalSettings = new SetRollershutterFeedbackValues();
+    var mappingControls = ((IEnumerable<ActionEditorControlBase>)Call(globalSettings.ActionEditor, "GetControls")).ToArray();
+    Check(mappingControls.Select(c => c.Name).SequenceEqual(new[] { "stopped", "up", "down" }), "global feedback settings expose three normalized SDK text fields");
+    var mappingParameters = new ActionEditorActionParameters(new Dictionary<string, string> { ["stopped"] = "IDLE", ["up"] = "OPENING", ["down"] = "CLOSING" });
+    var configuredValues = (RollershutterFeedbackValues)typeof(SetRollershutterFeedbackValues).GetMethod("ReadValues", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, new object[] { mappingParameters })!;
+    service.SetRollershutterFeedbackValues(configuredValues);
+    handler.BlindFeedback = "BlindState";
+    await service.RefreshItemsAsync();
+    Feedback("opening");
+    Check(service.GetRollershutterDirection("Blind") == RollershutterDirection.Up, "global text mapping changes every compact key without per-key values");
+    Check(service.GetRollershutterDirection("Blind", "TextState") == RollershutterDirection.Up, "String feedback items support named movement states");
+    Feedback("CLOSING");
+    Check(service.GetRollershutterDirection("Blind") == RollershutterDirection.Down, "global mapping accepts case-insensitive text feedback");
+    Feedback("IDLE");
+    Check(service.GetRollershutterDirection("Blind") == RollershutterDirection.Stopped, "custom stopped value restores arrows");
+    var restoredValues = RollershutterFeedbackValues.FromJson(JObject.Parse(configuredValues.ToJson().ToString()));
+    Check(restoredValues.Up == "OPENING" && restoredValues.Down == "CLOSING" && restoredValues.Stopped == "IDLE", "global mapping survives config JSON round trip");
+    foreach (var invalidValues in new[] { new[] { "0", "1", "1" }, new[] { "STOP", "up", "UP" }, new[] { "", "1", "2" }, new[] { "UNDEF", "1", "2" } })
+    {
+        try { new RollershutterFeedbackValues(invalidValues[0], invalidValues[1], invalidValues[2]); throw new Exception("Expected invalid mapping"); }
+        catch (ArgumentException) { Check(service.FeedbackValues.Up == "OPENING", "invalid mapping preserves active configuration"); }
+    }
+    service.SetRollershutterFeedbackValues(new RollershutterFeedbackValues());
+    handler.BlindFeedback = null;
+    handler.BlindPosition = "50";
+    await service.RefreshItemsAsync();
     foreach (var source in new[] { "0", "36", "100" })
     {
         handler.DimmerState = source;
@@ -174,7 +239,59 @@ async Task Run()
     using var malformed = Render("36 %", "lamp", true, "<svg broken");
     Check(malformed.Width == 90, "malformed server SVG uses local fallback");
     on.SaveToFile(Path.Combine(output, "lamp-on.png")); off.SaveToFile(Path.Combine(output, "lamp-off.png")); stop.SaveToFile(Path.Combine(output, "stop.png"));
+    await TestWebConfiguration(plugin, service, handler, args.Contains("--web-config-preview"));
     Console.WriteLine("All host SDK tests passed. Previews: " + output);
+}
+
+static async Task TestWebConfiguration(OpenHABPlugin plugin, OpenHABService service, TestApi handler, bool preview)
+{
+    var path = Path.Combine(Path.GetTempPath(), "openhab-web-test-" + Guid.NewGuid().ToString("N"), "config.json");
+    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+    typeof(OpenHABPlugin).GetProperty("ConfigurationFile", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(plugin, path);
+    typeof(OpenHABPlugin).GetField("_url", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(plugin, "http://openhab.test/");
+    const string secret = "fake-token-not-for-browser";
+    typeof(OpenHABPlugin).GetField("_token", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(plugin, secret);
+    File.WriteAllText(path, new JObject { ["url"] = "http://openhab.test/", ["token"] = secret, ["futureSetting"] = "preserved" }.ToString());
+    using var ui = new OpenHABWebConfiguration(service,
+        () => JObject.Parse(File.ReadAllText(path)),
+        change => typeof(OpenHABPlugin).GetMethod("ApplyWebConfiguration", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(plugin, new object[] { change }), false);
+    try
+    {
+        var commandCount = handler.Commands.Count;
+        var uri = ui.Open();
+        using var client = new HttpClient();
+        var html = await client.GetStringAsync(uri);
+        var initial = JObject.Parse(await client.GetStringAsync(new Uri(uri, "plugin/config")));
+        Check(!html.Contains(secret) && !initial.ToString().Contains(secret), "web page and configuration API never expose saved API token");
+        Check(html.Contains("Movement values") && html.Contains("feedback__Blind") && !html.Contains("actionCommand") && !html.Contains("arrowtriangle_up"), "web configuration provides mapping controls without device command buttons");
+        Check((await client.GetAsync(new Uri(uri, "style.css"))).IsSuccessStatusCode && (await client.GetAsync(new Uri(uri, "loupedeck-config.js"))).IsSuccessStatusCode, "isolated web assembly serves embedded CSS and JavaScript");
+        var draft = (JObject)initial.DeepClone();
+        draft["stopped"] = "IDLE"; draft["up"] = "OPENING"; draft["down"] = "CLOSING";
+        draft["feedback__Blind"] = "TextState";
+        using var response = await client.PostAsync(new Uri(uri, "plugin/config"), new StringContent(draft.ToString(), System.Text.Encoding.UTF8, "application/json"));
+        Check(response.IsSuccessStatusCode, "web settings save successfully through library callback");
+        var saved = JObject.Parse(File.ReadAllText(path));
+        Check((string)saved["token"]! == secret && (string)saved["futureSetting"]! == "preserved", "web saves preserve existing credentials and unrelated configuration");
+        Check(service.GetRollershutterFeedbackItem("Blind") == "TextState" && service.GetRollershutterDirection("Blind") == RollershutterDirection.Up, "browser item override and global mapping update live service");
+        Check((string)saved["rollershutterFeedbackAssignments"]!["Blind"]! == "TextState", "browser feedback assignment persists in existing plugin config");
+        Check(!(await client.GetStringAsync(new Uri(uri, "config"))).Contains(secret), "configuration snapshots stay token-free after saving");
+        var beforeInvalid = File.ReadAllText(path);
+        var invalid = (JObject)draft.DeepClone(); invalid["up"] = "IDLE";
+        using var rejected = await client.PostAsync(new Uri(uri, "plugin/config"), new StringContent(invalid.ToString(), System.Text.Encoding.UTF8, "application/json"));
+        Check(!rejected.IsSuccessStatusCode && File.ReadAllText(path) == beforeInvalid, "invalid global values cannot partially persist browser changes");
+        ui.Open();
+        var forged = (JObject)draft.DeepClone(); forged["session"] = "invalid";
+        using var forbidden = await client.PostAsync(new Uri(uri, "plugin/config"), new StringContent(forged.ToString(), System.Text.Encoding.UTF8, "application/json"));
+        Check(!forbidden.IsSuccessStatusCode && File.ReadAllText(path) == beforeInvalid, "configuration writes require the local browser session value");
+        ui.Open();
+        Check(handler.Commands.Count == commandCount, "all web configuration tests send zero device commands");
+        if (preview)
+        {
+            Console.WriteLine("WEB_CONFIG_PREVIEW=" + uri);
+            await Task.Delay(TimeSpan.FromMinutes(10));
+        }
+    }
+    finally { Directory.Delete(Path.GetDirectoryName(path)!, true); }
 }
 
 static bool HasColor(BitmapImage image, byte red, byte green, byte blue)
@@ -197,12 +314,15 @@ sealed class TestApi : HttpMessageHandler
 {
     public string DimmerState = "36";
     public string LampState = "ON";
+    public string BlindFeedback;
+    public string BlindPosition = "50";
     public List<(string Name, string Command)> Commands { get; } = new();
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
         if (request.Method == HttpMethod.Post) Commands.Add((request.RequestUri!.Segments.Last(), await request.Content!.ReadAsStringAsync(ct)));
-        var items = new JArray(new[] { ("Lamp", "Switch", LampState), ("Socket", "Switch", "OFF"), ("Dimmer", "Dimmer", DimmerState), ("Blind", "Rollershutter", "50"), ("AllBlinds", "Group", "25"), ("Brightness", "Number", "36"), ("Humidity", "Number:Dimensionless", "65"), ("ReadOnlyBrightness", "Number", "20") }.Select(i => new JObject
+        var items = new JArray(new[] { ("Lamp", "Switch", LampState), ("Socket", "Switch", "OFF"), ("Dimmer", "Dimmer", DimmerState), ("Blind", "Rollershutter", BlindPosition), ("BlindState", "Number", "0"), ("ManualState", "Number", "2"), ("TextState", "String", "OPENING"), ("AllBlinds", "Group", "25"), ("Brightness", "Number", "36"), ("Humidity", "Number:Dimensionless", "65"), ("ReadOnlyBrightness", "Number", "20") }.Select(i => new JObject
         {
+            ["metadata"] = i.Item1 == "Blind" && BlindFeedback != null ? new JObject { ["listWidget"] = new JObject { ["value"] = "widget:rollershutter_with_feedback", ["config"] = new JObject { ["stateItem"] = BlindFeedback } } } : null,
             ["name"] = i.Item1, ["type"] = i.Item2, ["groupType"] = i.Item1 == "AllBlinds" ? "Rollershutter" : null,
             ["label"] = i.Item1 == "Dimmer" ? "Dimmer, West" : i.Item1, ["state"] = i.Item3, ["groupNames"] = i.Item1 == "Blind" ? new JArray() : new JArray("Ground floor"),
             ["tags"] = i.Item1.Contains("Brightness") ? new JArray("Control", "Brightness") : new JArray("Measurement"),

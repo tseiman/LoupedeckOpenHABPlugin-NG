@@ -25,6 +25,7 @@
       <HintPath>$(PluginApiDir)/PluginApi.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <ProjectReference Include="../WebConfigHost/WebConfigHost.csproj" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <EmbeddedResource Include="Resources/*.png" />
     <EmbeddedResource Include="Resources/F7/*.svg" />
