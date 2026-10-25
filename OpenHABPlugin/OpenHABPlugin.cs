@@ -23,6 +23,11 @@ namespace Loupedeck.OpenHABPluginNG
                     var data = JObject.Parse(File.ReadAllText(ConfigPath));
                     _url = (string)data["url"] ?? "";
                     _token = (string)data["token"] ?? "";
+                    if (data["rollershutterFeedbackValues"] is JObject feedback)
+                    {
+                        try { OHService.SetRollershutterFeedbackValues(RollershutterFeedbackValues.FromJson(feedback)); }
+                        catch (ArgumentException) { Console.WriteLine("[OpenHAB NG] Invalid movement mapping; using 0/1/2 defaults."); }
+                    }
                 }
                 if (!string.IsNullOrWhiteSpace(_url)) OHService.ConfigureAsync(_url, _token).GetAwaiter().GetResult();
             }
@@ -42,12 +47,18 @@ namespace Loupedeck.OpenHABPluginNG
             Save();
             if (_url.Length > 0) await OHService.ConfigureAsync(_url, _token).ConfigureAwait(false);
         }
-        private void Save()
+        internal void SetRollershutterFeedbackValues(RollershutterFeedbackValues values)
+        {
+            Save(values);
+            OHService.SetRollershutterFeedbackValues(values);
+        }
+        private void Save(RollershutterFeedbackValues feedbackValues = null)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath));
             var data = File.Exists(ConfigPath) ? JObject.Parse(File.ReadAllText(ConfigPath)) : new JObject();
             data["url"] = _url;
             data["token"] = _token;
+            data["rollershutterFeedbackValues"] = (feedbackValues ?? OHService.FeedbackValues).ToJson();
             File.WriteAllText(ConfigPath, data.ToString());
         }
         internal async Task ExecuteAsync(string item, string command)

@@ -70,6 +70,8 @@ var holdSnapshot = false;
 TaskCompletionSource snapshotStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 TaskCompletionSource releaseSnapshot = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+bool useShutterFeedback = false;
+states["BlindState"] = "0";
 server.MapGet("/rest/items", async context =>
 {
     if (context.Request.Headers.Authorization != "Bearer test-token") { context.Response.StatusCode = 401; return; }
@@ -77,7 +79,8 @@ server.MapGet("/rest/items", async context =>
     Interlocked.Increment(ref restRequests);
     var data = new JArray(states.OrderBy(p => p.Key).Select(p => new JObject
     {
-        ["name"] = p.Key, ["type"] = p.Key == "AllBlinds" ? "Group" : p.Key == "Dimmer" ? "Dimmer" : p.Key == "Blind" ? "Rollershutter" : "Switch",
+        ["metadata"] = p.Key == "Blind" && useShutterFeedback ? new JObject { ["listWidget"] = new JObject { ["config"] = new JObject { ["stateItem"] = "BlindState" } } } : null,
+        ["name"] = p.Key, ["type"] = p.Key == "AllBlinds" ? "Group" : p.Key == "Dimmer" ? "Dimmer" : p.Key == "Blind" ? "Rollershutter" : p.Key == "BlindState" ? "Number" : "Switch",
         ["groupType"] = p.Key == "AllBlinds" ? "Rollershutter" : null,
         ["label"] = p.Key, ["category"] = p.Key == "Socket" ? "poweroutlet" : "light",
         ["state"] = p.Value, ["groupNames"] = new JArray("Others")
@@ -172,7 +175,7 @@ var catalogNotifications = 0;
 service.CatalogChanged += (_, _) => Interlocked.Increment(ref catalogNotifications);
 service.ItemChanged += (_, e) => notifications.Enqueue(e);
 await service.ConfigureAsync(address, "test-token");
-await Until(() => service.Items.Count() == 5 && service.IsWebSocketConnected && heartbeats > 0, "REST snapshot, authenticated WS and heartbeat");
+await Until(() => service.Items.Count() == states.Count && service.IsWebSocketConnected && heartbeats > 0, "REST snapshot, authenticated WS and heartbeat");
 Check(service.ConnectionHealth == OpenHABConnectionHealth.Healthy, "live WebSocket and REST retrieval give green status");
 Check(service.Rollershutters.Select(i => i.Name).OrderBy(n => n).SequenceEqual(new[] { "AllBlinds", "Blind" }), "rollershutter selection includes typed groups and individual items");
 await Until(() => restRequests >= 2, "snapshot reconciled after WebSocket connection");
@@ -194,12 +197,57 @@ states["Dimmer"] = "62";
 await Push(Event("Dimmer", "62", "ItemStateChangedEvent"));
 await Until(() => service.GetStateOfItem("Dimmer") == "62", "malformed event ignored; statechanged event handled");
 Check(!service.ProcessEvent(Event("Unknown", "ON")), "unrelated item ignored");
-Check(!service.ProcessEvent(new JObject { ["type"] = "ItemCommandEvent", ["topic"] = "openhab/items/Blind/command", ["payload"] = "{\"value\":\"UP\"}" }.ToString()), "command events do not masquerade as states");
+Check(service.ProcessEvent(new JObject { ["type"] = "ItemCommandEvent", ["topic"] = "openhab/items/Blind/command", ["payload"] = "{\"value\":\"UP\"}" }.ToString()), "external shutter commands update direction");
+Check(service.GetRollershutterDirection("Blind") == RollershutterDirection.Up && service.GetStateOfItem("Blind") == "50", "command direction is separate from physical position");
 
 await service.SendCommandAsync("Lamp", "OFF");
 foreach (var command in new[] { "UP", "STOP", "DOWN" }) await service.SendCommandAsync("Blind", command);
 Check(commands.Any(c => c == ("Lamp", "OFF")) && commands.Where(c => c.Name == "Blind").Select(c => c.Command).SequenceEqual(new[] { "UP", "STOP", "DOWN" }), "switch and shutter commands reach correct REST endpoint");
 Check(service.GetStateOfItem("Lamp") == "ON" && service.GetStateOfItem("Blind") == "50", "commands never overwrite confirmed physical states");
+await service.SendCommandAsync("Blind", "STOP");
+foreach (var step in new[] { (RollershutterDirection.Up, "UP"), (RollershutterDirection.Up, "STOP"), (RollershutterDirection.Down, "DOWN"), (RollershutterDirection.Up, "UP"), (RollershutterDirection.Down, "DOWN"), (RollershutterDirection.Down, "STOP") })
+{
+    await service.ActivateRollershutterAsync("Blind", step.Item1);
+    Check(commands.Last() == ("Blind", step.Item2), "compact shutter sends " + step.Item2);
+    Check(service.GetRollershutterDirection("Blind") == (step.Item2 == "STOP" ? RollershutterDirection.Stopped : step.Item1), "compact direction shared by both keys");
+    Check(service.GetRollershutterDirection("AllBlinds") == RollershutterDirection.Stopped, "other shutter independent");
+}
+await service.ActivateRollershutterAsync("Blind", RollershutterDirection.Up);
+service.ProcessEvent(Event("Blind", "0"));
+Check(service.GetRollershutterDirection("Blind") == RollershutterDirection.Stopped, "fully open resets UP button");
+await service.ActivateRollershutterAsync("Blind", RollershutterDirection.Down);
+service.ProcessEvent(Event("Blind", "100"));
+Check(service.GetRollershutterDirection("Blind") == RollershutterDirection.Stopped, "fully closed resets DOWN button");
+failCommands = true;
+try { await service.ActivateRollershutterAsync("Blind", RollershutterDirection.Up); throw new Exception("Expected failure"); }
+catch (HttpRequestException) { Check(service.GetRollershutterDirection("Blind") == RollershutterDirection.Stopped, "failed compact command preserves direction"); }
+failCommands = false;
+useShutterFeedback = true;
+await service.RefreshItemsAsync();
+Check(service.GetRollershutterFeedbackItem("Blind") == "BlindState", "REST metadata assigns movement feedback automatically");
+states["BlindState"] = "1";
+await Push(Event("BlindState", "1"));
+await Until(() => service.GetRollershutterDirection("Blind") == RollershutterDirection.Up, "WebSocket feedback reports UP");
+states["Blind"] = "0";
+await service.RefreshItemsAsync();
+Check(service.GetRollershutterDirection("Blind") == RollershutterDirection.Up, "REST endpoint position does not cancel physical movement feedback");
+await service.ActivateRollershutterAsync("Blind", RollershutterDirection.Up);
+Check(commands.Last() == ("Blind", "STOP") && service.GetRollershutterDirection("Blind") == RollershutterDirection.Up, "STOP command waits for actual stopped feedback");
+states["BlindState"] = "0";
+await Push(Event("BlindState", "0"));
+await Until(() => service.GetRollershutterDirection("Blind") == RollershutterDirection.Stopped, "Wago stop event restores both arrows");
+states["BlindState"] = "2";
+await Push(Event("BlindState", "2"));
+await Until(() => service.GetRollershutterDirection("Blind") == RollershutterDirection.Down, "external DOWN event updates compact controls");
+states["BlindState"] = "UNDEF";
+await Push(Event("BlindState", "UNDEF"));
+await Until(() => service.GetRollershutterDirection("Blind") == RollershutterDirection.Unknown, "invalid feedback is explicit rather than guessed");
+var beforeUnknownCommand = commands.Count;
+try { await service.ActivateRollershutterAsync("Blind", RollershutterDirection.Down); throw new Exception("Expected unknown feedback failure"); }
+catch (InvalidOperationException) { Check(commands.Count == beforeUnknownCommand, "unknown physical state sends no command"); }
+useShutterFeedback = false;
+states["Blind"] = "50";
+await service.RefreshItemsAsync();
 foreach (var pair in new[] { ("0", "100"), ("OFF", "100"), ("37", "0"), ("100", "0"), ("ON", "0") })
 {
     states["Dimmer"] = pair.Item1;
