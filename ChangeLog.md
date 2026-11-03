@@ -1,5 +1,10 @@
 # ChangeLog
 
+## 2026-11-03 – Fix black CT wheel display
+
+- Compose both clock and scene artwork through `WheelTool.CreateBitmapBuilder()`, matching the ATEM wheel output path. The CT SDK canvas is 240x240; returning 512x512 artwork directly worked in the configurator but left the real wheel black while touch actions remained active.
+- Added regression assertions for native canvas dimensions in both selection and clock mode. Artwork remains at 512x512 internally and is fitted by the SDK before transport.
+
 ## 2026-11-03 – Remove vulnerable ImageSharp dependencies
 
 - Removed SixLabors.ImageSharp, SixLabors.ImageSharp.Drawing and their transitive Fonts dependency from the scene feature. ImageSharp 3.1.12 has six reported vulnerabilities; the patched 3.2.0 release requires a license key during build, so no license enforcement was bypassed.

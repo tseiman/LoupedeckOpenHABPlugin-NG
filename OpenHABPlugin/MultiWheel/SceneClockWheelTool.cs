@@ -45,9 +45,15 @@ namespace Loupedeck.OpenHABPluginNG.MultiWheel
         protected override BitmapImage CreateImage()
         {
             var selection = OwnerPlugin?.SceneSelection;
-            if (selection?.Active != true) return ScenePresentation.RenderAnalogClock(DateTime.Now);
-            return ScenePresentation.Render(512, 512, selection.Selected?.Name ?? selection.Message,
-                selection.Position, true, OwnerPlugin.OHService.GetSceneIconSvg(), true);
+            using var content = selection?.Active != true
+                ? ScenePresentation.RenderAnalogClock(DateTime.Now)
+                : ScenePresentation.Render(512, 512, selection.Selected?.Name ?? selection.Message,
+                    selection.Position, true, OwnerPlugin.OHService.GetSceneIconSvg(), true);
+            // The CT transport expects the SDK's 240x240 canvas, not our 512x512 artwork.
+            // The configurator accepts the larger image, hiding this hardware-only mismatch.
+            using var bitmap = this.CreateBitmapBuilder();
+            bitmap.SetBackgroundImage(content);
+            return bitmap.ToImage();
         }
         protected override void OnEncoderEvent(DeviceEncoderEvent encoderEvent)
         {

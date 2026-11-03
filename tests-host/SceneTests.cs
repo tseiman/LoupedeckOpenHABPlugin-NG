@@ -67,7 +67,10 @@ static class SceneTests
         var wheel = new SceneClockWheelTool();
         typeof(WheelTool).GetProperty("Plugin", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.SetValue(wheel, plugin);
         var output = Path.Combine(AppContext.BaseDirectory, "previews"); Directory.CreateDirectory(output);
+        using var nativeBuilder = (BitmapBuilder)typeof(WheelTool).GetMethod("CreateBitmapBuilder", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(wheel, null)!;
         using var wheelScene = (BitmapImage)Call(wheel, "CreateImage");
+        Check(wheelScene.Width == nativeBuilder.Width && wheelScene.Height == nativeBuilder.Height,
+            "scene wheel output matches the SDK device canvas rather than the 512px artwork");
         File.WriteAllBytes(Path.Combine(output, "scene-wheel.png"), wheelScene.ToArray());
         selection.Move(-1);
         using var longLabel = (BitmapImage)Call(wheel, "CreateImage");
@@ -85,6 +88,8 @@ static class SceneTests
         Check(!selection.Active && api.Runs.SequenceEqual(new[] { "/rest/rules/alpha/runnow" }), "a single tap consumes the selection and repeated events cannot duplicate the POST");
         using var clock = (BitmapImage)Call(wheel, "CreateImage");
         File.WriteAllBytes(Path.Combine(output, "scene-clock.png"), clock.ToArray());
+        Check(clock.Width == nativeBuilder.Width && clock.Height == nativeBuilder.Height,
+            "clock output matches the SDK device canvas after leaving scene selection");
         Check(!clock.ToArray().SequenceEqual(wheelScene.ToArray()), "after execution the wheel immediately returns to the analog clock");
         api.HoldRun.SetResult();
         await Until(() => selection.Message == "");
