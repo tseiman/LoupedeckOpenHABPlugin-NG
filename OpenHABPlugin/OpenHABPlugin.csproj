@@ -26,8 +26,6 @@
       <Private>false</Private>
     </Reference>
     <ProjectReference Include="../WebConfigHost/WebConfigHost.csproj" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
-    <PackageReference Include="SixLabors.ImageSharp.Drawing" Version="2.1.7" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <EmbeddedResource Include="Resources/*.png" />
     <EmbeddedResource Include="Resources/F7/*.svg" />
@@ -45,6 +43,7 @@
     <Copy SourceFiles="@(MetadataFiles)" DestinationFiles="@(MetadataFiles->'$(OutputPath)../metadata/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
   </Target>
   <Target Name="RemoveLegacyBuildArtifacts" BeforeTargets="PrepareForBuild">
+    <Delete Files="$(OutputPath)SixLabors.ImageSharp.dll;$(OutputPath)SixLabors.ImageSharp.Drawing.dll;$(OutputPath)SixLabors.Fonts.dll" />
     <Delete Files="$(OutputPath)OpenHABPlugin.dll;$(OutputPath)OpenHABPlugin.pdb;$(OutputPath)OpenHABPlugin.deps.json;$(OutputPath)OpenHABPlugin.dll.config" />
   </Target>
   <Target Name="InstallOpenHABPluginLink" AfterTargets="CopyMetadata" Condition="'$(InstallPluginLink)' == 'true'">

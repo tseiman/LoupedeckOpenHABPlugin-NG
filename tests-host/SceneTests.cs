@@ -6,8 +6,6 @@ using Loupedeck.OpenHABPluginNG;
 using Loupedeck.OpenHABPluginNG.Actions;
 using Loupedeck.OpenHABPluginNG.MultiWheel;
 using Newtonsoft.Json.Linq;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 #nullable enable
 static class SceneTests
@@ -21,6 +19,23 @@ static class SceneTests
     }
     public static async Task Run()
     {
+        var presentation = typeof(OpenHABPlugin).Assembly.GetType("Loupedeck.OpenHABPluginNG.MultiWheel.ScenePresentation")!;
+        var renderer = presentation.GetMethod("Render", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var customSvg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g'><stop stop-color='#f00'/><stop offset='1' style='stop-color:rgb(0,128,255)'/></linearGradient></defs><rect width='100' height='100' fill='url(#g)'/><circle cx='50' cy='50' r='20' fill='orange'/></svg>";
+        using var grayGradient = (BitmapImage)renderer.Invoke(null, new object[] { 90, 90, "Scene", "OFF", false, customSvg, false })!;
+        Check(IsGray(grayGradient), "grayscale conversion handles gradient stops, CSS styles, short hex, RGB and named colors");
+        var clockRenderer = presentation.GetMethod("RenderAnalogClock", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var culture = System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            var fixedTime = new DateTime(2026, 11, 3, 3, 15, 30);
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo("en-US");
+            using var englishClock = (BitmapImage)clockRenderer.Invoke(null, new object[] { fixedTime })!;
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo("de-DE");
+            using var germanClock = (BitmapImage)clockRenderer.Invoke(null, new object[] { fixedTime })!;
+            Check(englishClock.ToArray().SequenceEqual(germanClock.ToArray()), "clock geometry renders identically with German and English decimal separators");
+        }
+        finally { System.Globalization.CultureInfo.CurrentCulture = culture; }
         var plugin = new OpenHABPlugin();
         using var service = plugin.OHService;
         using var selection = plugin.SceneSelection;
@@ -100,11 +115,16 @@ static class SceneTests
         Check(selection.Selected == null && !await selection.ExecuteAsync(), "removed scenes disappear while browsing and cannot execute");
         Check(api.Runs.Count == 2, "scene tests sent exactly the two intentional requests to the fake API");
     }
-    static bool IsGray(BitmapImage bitmap)
+    static bool IsGray(BitmapImage bitmapImage)
     {
-        using var image = Image.Load<Rgba32>(bitmap.ToArray());
-        for (var y = 0; y < image.Height; y++) for (var x = 0; x < image.Width; x++)
-        { var pixel = image[x,y]; if (pixel.A > 0 && (pixel.R != pixel.G || pixel.G != pixel.B)) return false; }
+        var type = Assembly.Load("SkiaSharp").GetType("SkiaSharp.SKBitmap")!;
+        using var bitmap = (IDisposable)type.GetMethod("Decode", new[] { typeof(byte[]) })!.Invoke(null, new object[] { bitmapImage.ToArray() })!;
+        var pixels = (Array)type.GetProperty("Pixels")!.GetValue(bitmap)!;
+        foreach (var pixel in pixels)
+        {
+            byte Channel(string name) => (byte)pixel!.GetType().GetProperty(name)!.GetValue(pixel)!;
+            if (Channel("Alpha") > 0 && (Channel("Red") != Channel("Green") || Channel("Green") != Channel("Blue"))) return false;
+        }
         return true;
     }
     sealed class SceneApi : HttpMessageHandler

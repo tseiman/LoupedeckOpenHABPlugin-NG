@@ -20,7 +20,7 @@ OpenHAB NG connects Loupedeck CT, Live, Live S, and Razer Stream Controller to O
 
 - .NET 10 SDK. Integration tests also require the .NET 10 and ASP.NET Core 10 runtimes, which are included in the SDK. Check installed versions with `dotnet --list-sdks` and `dotnet --list-runtimes`.
 - Logi Plugin Service installed by the host application, providing its .NET 10 `PluginApi.dll`.
-- NuGet access for Newtonsoft.Json 13.0.3, SixLabors.ImageSharp 3.1.12 and SixLabors.ImageSharp.Drawing 2.1.7, or a local package source.
+- NuGet access for Newtonsoft.Json 13.0.3, or a local package source.
 
 The browser UI uses a pinned Git submodule of [LoupedeckWebConfigLib](https://github.com/tseiman/LoupedeckWebConfigLib). The project builds its sources in an isolated .NET 10 assembly; no separate .NET 8 SDK/runtime or other plugin checkout is required.
 
@@ -278,9 +278,9 @@ Protocol references: [OpenHAB WebSocket API](https://www.openhab.org/docs/config
 5. Tap the wheel display once to invoke the highlighted scene. The selection is consumed immediately, the key returns to OFF and the wheel shows the clock. A successful HTTP response means the run request was accepted, not that every device has reached its target state.
 6. Press the same key again to cancel without running anything. Leaving/stopping the wheel page cancels the current selection as well.
 
-The clock drawing is carried over from `MixFaderWheelTool` in [LoupedeckAtemControlerPlugin](https://github.com/tseiman/LoupedeckAtemControlerPlugin): black background, white rim, twelve hour marks, white hour/minute hands and a red second hand, using local system time and a one-second refresh.
+The clock geometry is carried over from `MixFaderWheelTool` in [LoupedeckAtemControlerPlugin](https://github.com/tseiman/LoupedeckAtemControlerPlugin): black background, white rim, twelve hour marks, white hour/minute hands and a red second hand, using local system time and a one-second refresh. Rendering uses the existing Logi vector/bitmap API; no ImageSharp packages or additional image-library license are required.
 
-The mask SVG supplied for this feature is embedded as the offline default. When available, the current server's classic `scene` icon is loaded through the existing authenticated icon cache. OFF is converted to true grayscale after rasterization, so multicolor SVGs work too. No server hostname or credential is embedded in the plugin.
+The mask SVG supplied for this feature is embedded as the offline default. When available, the current server's classic `scene` icon is loaded through the existing authenticated icon cache. For OFF, SVG paint colors are converted to grayscale through the host API before rasterization, including the supplied multicolor logo. No server hostname or credential is embedded in the plugin.
 
 Scene discovery uses `GET /rest/rules?tags=Scene&summary=true`; execution uses one JSON `POST /rest/rules/{uid}/runnow`. Ordinary non-scene rules and disabled scenes are excluded. The existing connection and token are reused; no admin token is requested. A missing tag, empty result, expired token or failed catalog request is shown on the wheel instead of offering stale scenes. Catalogs refresh on activation and during normal reconciliation. Failed execution displays an error on the key and is never retried automatically, because even a timed-out request might already have executed.
 

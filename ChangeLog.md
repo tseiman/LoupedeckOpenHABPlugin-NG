@@ -1,5 +1,12 @@
 # ChangeLog
 
+## 2026-11-03 – Remove vulnerable ImageSharp dependencies
+
+- Removed SixLabors.ImageSharp, SixLabors.ImageSharp.Drawing and their transitive Fonts dependency from the scene feature. ImageSharp 3.1.12 has six reported vulnerabilities; the patched 3.2.0 release requires a license key during build, so no license enforcement was bypassed.
+- Render the existing ATEM-style clock geometry through the Logi SVG API and convert scene SVG paint colors to grayscale with the host's vector API. Keep wheel behavior and layout unchanged, without an additional imaging package or license requirement.
+- Release build and all real-host SDK tests pass, including gradient grayscale conversion and culture-independent clock geometry. Verified that the resolved dependency graph and plugin output contain no SixLabors packages/DLLs; rebuilds remove old copies automatically.
+- The earlier offline build could not perform the online vulnerability audit; a warning-free cached build was not evidence that its dependencies had no known vulnerabilities.
+
 ## 2026-11-03 – CT scene selection and analog clock
 
 - Added the `Scenes / Clock` CT wheel page with the analog clock drawing from the ATEM plugin, including white hour/minute hands and a red second hand. Rotate to browse native scenes, tap once to run, then return to the clock automatically.
