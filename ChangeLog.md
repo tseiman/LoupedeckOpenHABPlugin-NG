@@ -1,5 +1,13 @@
 # ChangeLog
 
+## 2026-11-03 – CT scene selection and analog clock
+
+- Added the `Scenes / Clock` CT wheel page with the analog clock drawing from the ATEM plugin, including white hour/minute hands and a red second hand. Rotate to browse native scenes, tap once to run, then return to the clock automatically.
+- Added the `Scene Select ON/OFF` key with a per-key scene-tag selector, shared wheel state, cancellation, and the supplied scene-mask SVG: grayscale when OFF, original colors when ON and on the selection display.
+- Discover scenes through normal-user rule summaries, filter by the configured tag and sort by display name. Refresh on activation and reconciliation; exclude disabled/non-scene rules and clear unavailable catalogs. Use exactly one native run request and never retry commands automatically.
+- Added real SDK tests for the selector, grayscale/color images, wheel touch filtering, duplicate suppression, cancellation, tag switching, removed scenes and HTTP errors. Existing host SDK and local REST/WebSocket regression checks pass. No real scene was executed and no production configuration was accessed. A physical CT test remains pending.
+- Build uses the existing locally cached packages. The .NET NuGet online audit/restore endpoint reported a certificate error on this Mac; no certificate checks were bypassed.
+
 ## 2026-10-25 – Local browser configuration
 
 - Integrated the pinned LoupedeckWebConfigLib source as a Git submodule, built in a plugin-specific .NET 10 assembly. Added Settings → Open Configuration with a per-plugin local server, independent of the library static singleton. Embedded web assets and the MIT license are included in the build output.

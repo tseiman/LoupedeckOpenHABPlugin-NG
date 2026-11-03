@@ -35,6 +35,7 @@ static ActionEditorActionParameters Parameters(string item) => new(new Dictionar
 
 async Task Run()
 {
+    await SceneTests.Run();
     var plugin = new OpenHABPlugin();
     using var service = plugin.OHService;
     var handler = new TestApi();

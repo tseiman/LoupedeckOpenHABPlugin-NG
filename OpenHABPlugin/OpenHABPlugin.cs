@@ -11,6 +11,8 @@ namespace Loupedeck.OpenHABPluginNG
         public override bool UsesApplicationApiOnly => true;
         public override bool HasNoApplication => true;
         public OpenHABService OHService { get; } = new OpenHABService();
+        public SceneSelection SceneSelection { get; }
+        public OpenHABPlugin() { SceneSelection = new SceneSelection(OHService); }
         private string _url = "";
         private string _token = "";
         internal string ConfigurationFile { get; set; }
@@ -42,6 +44,7 @@ namespace Loupedeck.OpenHABPluginNG
         public override void Unload()
         {
             _webConfiguration?.Dispose();
+            SceneSelection.Dispose();
             OHService.Dispose();
         }
         internal Task SetBaseUrlAsync(string url)

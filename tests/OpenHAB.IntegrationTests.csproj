@@ -7,6 +7,8 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <Compile Include="../OpenHABPlugin/OpenHABScenes.cs" Link="OpenHABScenes.cs" />
+    <Compile Include="../OpenHABPlugin/SceneSelection.cs" Link="SceneSelection.cs" />
     <Compile Include="../OpenHABPlugin/OpenHABService.cs" Link="OpenHABService.cs" />
     <Compile Include="../OpenHABPlugin/OpenHABIconCache.cs" Link="OpenHABIconCache.cs" />
     <Compile Include="../OpenHABPlugin/OpenHABEventArgs.cs" Link="OpenHABEventArgs.cs" />

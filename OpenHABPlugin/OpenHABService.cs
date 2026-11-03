@@ -75,6 +75,7 @@ namespace Loupedeck.OpenHABPluginNG
                 var generation = _generation;
                 _icons = new OpenHABIconCache(_http, uri, ct, name =>
                 {
+                    if (generation == _generation && name == "__scene_icon__") NotifyScenes();
                     if (generation == _generation && GetItem(name) is OpenHABCommandItem item) Notify(item);
                 });
                 _worker = Task.Run(() => RunAsync(ct));
@@ -85,6 +86,7 @@ namespace Loupedeck.OpenHABPluginNG
         private async Task RunAsync(CancellationToken ct)
         {
             await TryRefreshAsync(ct).ConfigureAwait(false);
+            if (_scenesRequested) await RefreshScenesAsync(ct).ConfigureAwait(false);
             await Task.WhenAll(WebSocketLoopAsync(ct), PollLoopAsync(ct)).ConfigureAwait(false);
         }
         private async Task TryRefreshAsync(CancellationToken ct)
@@ -170,6 +172,7 @@ namespace Loupedeck.OpenHABPluginNG
                     // Fallback without WS; reconciliation repairs missed events as well.
                     await Task.Delay(TimeSpan.FromSeconds(_connected ? 30 : 5), ct).ConfigureAwait(false);
                     await TryRefreshAsync(ct).ConfigureAwait(false);
+                    if (_scenesRequested) await RefreshScenesAsync(ct).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
@@ -376,6 +379,7 @@ namespace Loupedeck.OpenHABPluginNG
             SetConnected(false);
             SetRestStatus("DISCONNECTED");
             ResetRollershutterDirections();
+            ResetScenes("DISCONNECTED");
         }
         public void Dispose() => StopAsync().GetAwaiter().GetResult();
     }
